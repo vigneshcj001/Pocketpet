@@ -1,0 +1,530 @@
+/* The overlay must be fully transparent: any painted background would cover
+   the user's desktop. Nothing here may set a body background. */
+:root {
+  --pet-size: 76px;
+  --ink: #2c2438;
+  --bubble-bg: rgba(255, 255, 255, 0.97);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+  font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+}
+
+#stage {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* --- the pet ------------------------------------------------------------- */
+
+.pet {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--pet-size);
+  height: var(--pet-size);
+  /* translate3d keeps the pet on the compositor; transform is written every
+     frame, so anything that triggers layout here would cost real CPU. */
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+  pointer-events: auto;
+  cursor: grab;
+  transform-origin: 50% 100%;
+}
+
+.pet.dragging {
+  cursor: grabbing;
+}
+
+.sprite {
+  width: 100%;
+  height: 100%;
+  transform: scaleX(var(--facing, 1));
+  transform-origin: 50% 50%;
+}
+
+.sprite svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  display: block;
+}
+
+.shadow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(var(--pet-size) * 0.62);
+  height: calc(var(--pet-size) * 0.16);
+  margin-left: calc(var(--pet-size) * 0.19);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.28);
+  filter: blur(3px);
+  transform: translate3d(0, 0, 0) scale(var(--shadow-scale, 1));
+  opacity: var(--shadow-opacity, 0.5);
+  will-change: transform, opacity;
+  pointer-events: none;
+}
+
+/* --- body part animation -------------------------------------------------
+   Every pet SVG exposes the same part classes, so one stylesheet drives all
+   four animals. */
+
+.p-leg-f,
+.p-leg-b {
+  transform-origin: 50% 15%;
+  transform-box: fill-box;
+}
+
+.p-arm {
+  transform-origin: 80% 12%;
+  transform-box: fill-box;
+  transform: rotate(var(--arm-angle, 0deg));
+}
+
+.p-tail {
+  transform-origin: 8% 80%;
+  transform-box: fill-box;
+}
+
+.p-head {
+  transform-origin: 50% 90%;
+  transform-box: fill-box;
+}
+
+.p-eye {
+  transform-origin: 50% 50%;
+  transform-box: fill-box;
+  animation: blink 5.5s infinite;
+}
+
+@keyframes blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.1); }
+}
+
+/* idle: gentle breathing + a lazy tail */
+.pet[data-state="idle"] .p-head,
+.pet[data-state="sit"] .p-head {
+  animation: bob 2.6s ease-in-out infinite;
+}
+.pet[data-state="idle"] .p-tail,
+.pet[data-state="sit"] .p-tail {
+  animation: tail-sway 2.2s ease-in-out infinite;
+}
+
+@keyframes bob {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-1.4px) rotate(-2deg); }
+}
+
+@keyframes tail-sway {
+  0%, 100% { transform: rotate(-8deg); }
+  50% { transform: rotate(14deg); }
+}
+
+/* walk / run: alternating legs, faster when running */
+.pet[data-state="walk"] .p-leg-f,
+.pet[data-state="run"] .p-leg-f {
+  animation: step 0.36s linear infinite;
+}
+.pet[data-state="walk"] .p-leg-b,
+.pet[data-state="run"] .p-leg-b {
+  animation: step 0.36s linear infinite reverse;
+}
+.pet[data-state="run"] .p-leg-f,
+.pet[data-state="run"] .p-leg-b {
+  animation-duration: 0.2s;
+}
+.pet[data-state="walk"] .sprite,
+.pet[data-state="run"] .sprite {
+  animation: hop 0.36s ease-in-out infinite;
+}
+.pet[data-state="run"] .sprite {
+  animation-duration: 0.2s;
+}
+.pet[data-state="walk"] .p-tail,
+.pet[data-state="run"] .p-tail {
+  animation: tail-sway 0.5s ease-in-out infinite;
+}
+
+@keyframes step {
+  0% { transform: rotate(22deg); }
+  50% { transform: rotate(-22deg); }
+  100% { transform: rotate(22deg); }
+}
+
+@keyframes hop {
+  0%, 100% { transform: scaleX(var(--facing, 1)) translateY(0); }
+  50% { transform: scaleX(var(--facing, 1)) translateY(-2.5px); }
+}
+
+/* sleep */
+.pet[data-state="sleep"] .p-head {
+  transform: translateY(3px) rotate(-12deg);
+}
+.pet[data-state="sleep"] .p-eye {
+  animation: none;
+  transform: scaleY(0.08);
+}
+.pet[data-state="sleep"] .sprite {
+  animation: breathe 3.4s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { transform: scaleX(var(--facing, 1)) scale(1); }
+  50% { transform: scaleX(var(--facing, 1)) scale(1.035); }
+}
+
+/* being dragged: legs dangle */
+.pet[data-state="drag"] .p-leg-f,
+.pet[data-state="drag"] .p-leg-b {
+  animation: dangle 0.7s ease-in-out infinite alternate;
+}
+@keyframes dangle {
+  from { transform: rotate(-14deg); }
+  to { transform: rotate(14deg); }
+}
+
+/* happy wiggle after a pat */
+.pet[data-state="happy"] .sprite {
+  animation: wiggle 0.42s ease-in-out 3;
+}
+@keyframes wiggle {
+  0%, 100% { transform: scaleX(var(--facing, 1)) rotate(0deg) translateY(0); }
+  25% { transform: scaleX(var(--facing, 1)) rotate(-9deg) translateY(-6px); }
+  75% { transform: scaleX(var(--facing, 1)) rotate(9deg) translateY(-6px); }
+}
+
+/* landing squash */
+.pet.landed .sprite {
+  animation: squash 0.3s ease-out;
+}
+@keyframes squash {
+  0% { transform: scaleX(var(--facing, 1)) scale(1.28, 0.7); }
+  60% { transform: scaleX(var(--facing, 1)) scale(0.94, 1.08); }
+  100% { transform: scaleX(var(--facing, 1)) scale(1, 1); }
+}
+
+/* reaching out to press a caption button */
+.pet[data-state="reach"] .p-arm {
+  transform: rotate(var(--arm-angle, -70deg)) scaleY(var(--arm-stretch, 1.9));
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.pet[data-state="reach"] .p-head {
+  transform: rotate(-6deg) translateY(-1px);
+}
+
+/* --- speech bubble -------------------------------------------------------- */
+
+.bubble {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%) scale(var(--bubble-scale, 1));
+  transform-origin: 50% 100%;
+  min-width: 46px;
+  max-width: 230px;
+  padding: 7px 11px;
+  border-radius: 13px;
+  background: var(--bubble-bg);
+  color: var(--ink);
+  font-size: 12.5px;
+  line-height: 1.35;
+  text-align: center;
+  white-space: pre-wrap;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  pointer-events: auto;
+  animation: pop-in 0.24s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.bubble::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -6px;
+  border: 6px solid transparent;
+  border-top-color: var(--bubble-bg);
+}
+
+.bubble.leaving {
+  animation: pop-out 0.18s ease-in forwards;
+}
+
+@keyframes pop-in {
+  from { opacity: 0; transform: translateX(-50%) scale(0.5) translateY(6px); }
+  to { opacity: 1; transform: translateX(-50%) scale(1) translateY(0); }
+}
+
+@keyframes pop-out {
+  to { opacity: 0; transform: translateX(-50%) scale(0.7) translateY(4px); }
+}
+
+/* --- caption button marker ----------------------------------------------- */
+
+.target-ring {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 2px solid rgba(255, 106, 106, 0.9);
+  border-radius: 6px;
+  box-shadow: 0 0 0 3px rgba(255, 106, 106, 0.18);
+  pointer-events: none;
+  animation: ring-pulse 0.7s ease-in-out infinite;
+}
+
+@keyframes ring-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pet .sprite,
+  .pet .p-head,
+  .pet .p-tail,
+  .pet .p-leg-f,
+  .pet .p-leg-b,
+  .pet .p-eye,
+  .target-ring,
+  .bubble {
+    animation: none !important;
+  }
+}
+
+/* --- idle antics ----------------------------------------------------------
+   Picked at random once the cursor has been still a while. Each is a short
+   one-shot the JS ends by returning to "idle"; stretch loops because the
+   break reminder holds it. */
+
+.pet[data-state="yawn"] .p-head {
+  animation: yawn 1.5s ease-in-out;
+}
+@keyframes yawn {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  35%, 70% { transform: rotate(-16deg) translateY(-2px) scale(1.07); }
+}
+
+.pet[data-state="stretch"] .sprite {
+  animation: stretch 1.5s ease-in-out infinite;
+}
+.pet[data-state="stretch"] .p-leg-f {
+  animation: leg-out 1.5s ease-in-out infinite;
+}
+.pet[data-state="stretch"] .p-leg-b {
+  animation: leg-out 1.5s ease-in-out infinite reverse;
+}
+@keyframes stretch {
+  0%, 100% { transform: scaleX(var(--facing, 1)) scale(1, 1) translateY(0); }
+  45%, 65% { transform: scaleX(var(--facing, 1)) scale(0.9, 1.16) translateY(-5px); }
+}
+@keyframes leg-out {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(28deg); }
+}
+
+.pet[data-state="look"] .p-head {
+  animation: look 1.5s ease-in-out;
+}
+@keyframes look {
+  0%, 100% { transform: rotate(0deg) translateX(0); }
+  25%, 45% { transform: rotate(12deg) translateX(2px); }
+  60%, 85% { transform: rotate(-12deg) translateX(-2px); }
+}
+
+.pet[data-state="spin"] .sprite {
+  animation: spin 0.9s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes spin {
+  from { transform: scaleX(var(--facing, 1)) rotate(0deg); }
+  to { transform: scaleX(var(--facing, 1)) rotate(360deg); }
+}
+
+/* --- food ------------------------------------------------------------------ */
+
+.food {
+  position: absolute;
+  top: 0;
+  left: 0;
+  line-height: 1;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
+  will-change: transform;
+  z-index: 1;
+}
+.food.placing {
+  opacity: 0.75;
+  animation: food-hover 0.9s ease-in-out infinite alternate;
+}
+@keyframes food-hover {
+  from { margin-top: 0; }
+  to { margin-top: -4px; }
+}
+.food.eaten {
+  animation: food-eaten 1.7s steps(6, end) forwards;
+}
+@keyframes food-eaten {
+  from { opacity: 1; scale: 1; }
+  to { opacity: 0.2; scale: 0.15; }
+}
+
+/* eating: head dips to the bowl, tail happy */
+.pet[data-state="eat"] .p-head {
+  animation: munch 0.34s ease-in-out infinite;
+}
+.pet[data-state="eat"] .p-tail {
+  animation: tail-sway 0.6s ease-in-out infinite;
+}
+@keyframes munch {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(4px) rotate(10deg); }
+}
+
+/* --- hide/show fade -------------------------------------------------------- */
+
+#stage {
+  transition: opacity 0.22s ease;
+}
+#stage.hidden {
+  opacity: 0;
+}
+
+/* --- right-click menu ------------------------------------------------------ */
+
+.pet-menu {
+  --menu-bg: rgba(255, 255, 255, 0.97);
+  --menu-ink: #2c2438;
+  --menu-hover: rgba(0, 0, 0, 0.07);
+  --menu-line: rgba(0, 0, 0, 0.1);
+  position: absolute;
+  min-width: 210px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--menu-bg);
+  color: var(--menu-ink);
+  font: 12.5px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--menu-line);
+  pointer-events: auto;
+  z-index: 10;
+  backdrop-filter: blur(10px);
+}
+@media (prefers-color-scheme: dark) {
+  .pet-menu {
+    --menu-bg: rgba(28, 24, 36, 0.96);
+    --menu-ink: #f4f1ef;
+    --menu-hover: rgba(255, 255, 255, 0.12);
+    --menu-line: rgba(255, 255, 255, 0.14);
+  }
+}
+.pet-menu .row {
+  padding: 7px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  outline: none;
+  white-space: nowrap;
+}
+.pet-menu .row:hover,
+.pet-menu .row:focus {
+  background: var(--menu-hover);
+}
+.pet-menu .row:focus-visible {
+  box-shadow: inset 0 0 0 1.5px #e8963c;
+}
+.pet-menu .sep {
+  height: 1px;
+  margin: 5px 8px;
+  background: var(--menu-line);
+}
+
+/* --- hearts from petting --------------------------------------------------- */
+
+.hearts {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.heart {
+  position: absolute;
+  top: 0;
+  left: 0;
+  font-size: 15px;
+  opacity: 0;
+  animation: heart-up 1.5s ease-out forwards;
+  will-change: transform, opacity;
+}
+@keyframes heart-up {
+  0% { opacity: 0; translate: 0 0; scale: 0.6; }
+  15% { opacity: 1; scale: 1; }
+  100% { opacity: 0; translate: var(--drift, 0) -70px; scale: 1.1; }
+}
+
+/* --- ball ------------------------------------------------------------------ */
+
+.ball {
+  position: absolute;
+  top: 0;
+  left: 0;
+  line-height: 1;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
+  will-change: transform;
+  transition: opacity 0.7s;
+  z-index: 1;
+}
+.ball.fading {
+  opacity: 0;
+}
+
+/* --- companion ------------------------------------------------------------- */
+
+.buddy {
+  width: calc(var(--pet-size) * 0.85);
+  height: calc(var(--pet-size) * 0.85);
+  pointer-events: none;
+  cursor: default;
+  opacity: 0.96;
+}
+
+/* --- custom image pet ------------------------------------------------------ */
+
+.custom-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  -webkit-user-drag: none;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.3));
+}
+
+/* --- peeking over a ledge edge --------------------------------------------- */
+
+.pet[data-state="peek"] .sprite {
+  animation: peek 1.8s ease-in-out;
+  transform-origin: 50% 100%;
+}
+.pet[data-state="peek"] .p-head {
+  animation: peek-head 1.8s ease-in-out;
+}
+@keyframes peek {
+  0%, 100% { transform: scaleX(var(--facing, 1)) rotate(0deg); }
+  30%, 75% { transform: scaleX(var(--facing, 1)) rotate(14deg) translateX(4px); }
+}
+@keyframes peek-head {
+  0%, 100% { transform: rotate(0deg); }
+  30%, 75% { transform: rotate(18deg) translateY(2px); }
+}

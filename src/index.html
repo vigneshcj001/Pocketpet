@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PocketPet</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!-- The whole page is a transparent, click-through overlay covering every
+         monitor. Only the pet and its bubble are interactive, and the Rust side
+         flips click-through on and off as the cursor enters/leaves them. -->
+    <div id="stage">
+      <div id="pet" class="pet">
+        <div id="bubble" class="bubble" hidden><span id="bubble-text"></span></div>
+        <div id="sprite" class="sprite"></div>
+      </div>
+      <div id="shadow" class="shadow"></div>
+      <!-- Optional second pet. Click-through; it just tags along. -->
+      <div id="buddy" class="pet buddy" hidden><div id="buddy-sprite" class="sprite"></div></div>
+      <!-- Food the user placed; the pet runs over and eats it. -->
+      <div id="food" class="food" hidden></div>
+      <!-- Ball for fetch. Same click-to-place mechanic as food. -->
+      <div id="ball" class="ball" hidden>⚽</div>
+      <!-- Floating hearts from petting; children are transient. -->
+      <div id="hearts" class="hearts"></div>
+      <!-- Drawn over a caption button while the pet is pressing it. -->
+      <div id="target-ring" class="target-ring" hidden></div>
+    </div>
+    <script type="module" src="main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,92 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f6f4f1;
+  --card: #ffffff;
+  --ink: #2c2438;
+  --muted: #7a7386;
+  --line: #e6e2ee;
+  --accent: #e8963c;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1824;
+    --card: #262030;
+    --ink: #f4f1ef;
+    --muted: #a49db1;
+    --line: #3a3346;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 13.5px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+}
+main {
+  padding: 16px 18px 20px;
+}
+h1 {
+  font-size: 18px;
+  margin: 0 0 10px;
+}
+h2 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+section {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+}
+label.row {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+select,
+input[type="range"] {
+  width: 100%;
+  font: inherit;
+  accent-color: var(--accent);
+}
+select {
+  padding: 5px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+}
+.hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+.foot {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  margin: 4px 0 0;
+}
+kbd {
+  font: inherit;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--card);
+}

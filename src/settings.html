@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PocketPet settings</title>
+    <link rel="stylesheet" href="settings.css" />
+  </head>
+  <body>
+    <!-- Shares localStorage with the overlay (same origin). Every change is
+         saved immediately and broadcast as a Tauri event; the overlay reloads
+         its settings on that event. -->
+    <main>
+      <h1>PocketPet</h1>
+
+      <section>
+        <h2>Pet</h2>
+        <label>Pet <select id="pet"></select></label>
+        <label>Companion <select id="companion"></select></label>
+        <label>Size
+          <select id="size">
+            <option value="small">Small</option>
+            <option value="medium">Medium</option>
+            <option value="large">Large</option>
+          </select>
+        </label>
+        <label>Speed
+          <select id="speed">
+            <option value="slow">Slow</option>
+            <option value="normal">Normal</option>
+            <option value="fast">Fast</option>
+          </select>
+        </label>
+      </section>
+
+      <section>
+        <h2>Behaviour</h2>
+        <label class="row"><input type="checkbox" id="follow" /> Follow cursor</label>
+        <label class="row"><input type="checkbox" id="mischief" /> Mischief mode (minimises windows on its own)</label>
+        <label class="row"><input type="checkbox" id="realClick" /> Use real mouse clicks for buttons</label>
+        <label>Chatter <span class="hint" id="chatterHint"></span>
+          <input type="range" id="chatter" min="0" max="100" step="5" />
+        </label>
+        <label>Hunger rate <span class="hint" id="hungerHint"></span>
+          <input type="range" id="hungerRate" min="0" max="200" step="10" />
+        </label>
+      </section>
+
+      <section>
+        <h2>Reminders</h2>
+        <label>Break reminder
+          <select id="breakMins">
+            <option value="0">Off</option>
+            <option value="25">Every 25 min</option>
+            <option value="45">Every 45 min</option>
+            <option value="60">Every 60 min</option>
+          </select>
+        </label>
+        <label class="row"><input type="checkbox" id="toasts" /> Windows notification when the pet is hidden</label>
+      </section>
+
+      <section>
+        <h2>Sound</h2>
+        <label class="row"><input type="checkbox" id="sound" /> Sounds on</label>
+        <label>Volume <span class="hint" id="volumeHint"></span>
+          <input type="range" id="volume" min="0" max="100" step="5" />
+        </label>
+      </section>
+
+      <p class="foot">Hotkey <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>P</kbd> hides and shows the pet.</p>
+    </main>
+    <script type="module" src="settings.js"></script>
+  </body>
+</html>

@@ -1,0 +1,1649 @@
+import { getPet as getBuiltinPet, PETS, DEFAULT_PET } from "./pets/index.js";
+
+const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
+
+// --- tunables ----------------------------------------------------------------
+
+/** Pet box in CSS px. Chosen from SIZES; mirrored into --pet-size by applySize. */
+let SIZE = 76;
+const SIZES = { small: 56, medium: 76, large: 104 };
+const SPEEDS = { slow: 0.6, normal: 1, fast: 1.5 };
+const GRAVITY = 2400; // px/s^2
+const WALK_SPEED = 210; // px/s, before the speed multiplier
+const RUN_SPEED = 520;
+const ARRIVE_RADIUS = 110; // stop chasing once this close to the cursor
+const RUN_RADIUS = 420;
+const HOP_REACH = 150; // highest ledge the pet will hop onto
+const SETTLE_AFTER = 2_600; // cursor idle before the pet stops chasing and falls
+const HUNGER_PER_MIN = 100 / 150; // empty to starving in ~2.5 h at 100% rate
+const HUNGRY_AT = 70; // starts asking for food
+const STARVING_AT = 90; // slows down
+
+/** Sleep sooner late at night. */
+const SLEEP_AFTER = () => (isLateNight() ? 9_000 : 25_000);
+
+const speedMul = () =>
+  (SPEEDS[settings.speed] ?? 1) * (settings.hunger >= STARVING_AT ? 0.6 : 1);
+
+// --- dom ---------------------------------------------------------------------
+
+const el = {
+  stage: document.getElementById("stage"),
+  pet: document.getElementById("pet"),
+  sprite: document.getElementById("sprite"),
+  bubble: document.getElementById("bubble"),
+  bubbleText: document.getElementById("bubble-text"),
+  shadow: document.getElementById("shadow"),
+  ring: document.getElementById("target-ring"),
+  food: document.getElementById("food"),
+  ball: document.getElementById("ball"),
+  buddy: document.getElementById("buddy"),
+  buddySprite: document.getElementById("buddy-sprite"),
+  hearts: document.getElementById("hearts"),
+};
+
+// --- settings ----------------------------------------------------------------
+
+const DEFAULTS = {
+  pet: DEFAULT_PET,
+  companion: "",
+  follow: true,
+  mischief: false,
+  realClick: false,
+  size: "medium",
+  speed: "normal",
+  breakMins: 0,
+  toasts: true,
+  sound: true,
+  volume: 60, // 0..100
+  chatter: 50, // 0..100, how talkative
+  hungerRate: 100, // percent of HUNGER_PER_MIN
+  hunger: 20,
+  hungerAt: Date.now(), // when `hunger` was last brought up to date
+  customImage: null, // data: URL for the "custom" pet
+  stats: { meals: 0, pats: 0, pets: 0, fetches: 0, firstRun: Date.now() },
+};
+
+function loadSettings() {
+  try {
+    const stored = JSON.parse(localStorage.getItem("pocketpet") ?? "{}");
+    return { ...DEFAULTS, ...stored, stats: { ...DEFAULTS.stats, ...(stored.stats ?? {}) } };
+  } catch {
+    return structuredClone(DEFAULTS);
+  }
+}
+
+function saveSettings() {
+  try {
+    localStorage.setItem("pocketpet", JSON.stringify(settings));
+  } catch {
+    /* private mode or storage disabled - settings just won't persist */
+  }
+}
+
+let settings = loadSettings();
+
+/** The settings window edited localStorage; pick up what changed. */
+function reloadSettings(patch) {
+  const fresh = loadSettings();
+  const before = settings;
+  settings = fresh;
+  const changed = (k) => JSON.stringify(before[k]) !== JSON.stringify(fresh[k]);
+  if (changed("size")) setSize(fresh.size, true);
+  if (changed("pet")) mountPet(fresh.pet);
+  if (changed("companion")) mountBuddy(fresh.companion);
+  if (changed("breakMins")) scheduleBreak();
+  if (patch && "sound" in patch && fresh.sound) playChirp();
+  syncTray();
+}
+
+// --- pets --------------------------------------------------------------------
+
+const GENERIC_LINES = {
+  greet: ["Hi!", "I'm here."],
+  idle: ["...", "Hm.", "What are we doing?"],
+  click: ["!", "Hehe."],
+  sleep: ["Zzz..."],
+  drag: ["Whee!"],
+  land: ["Oof."],
+  close: ["Bye, window!"],
+  minimize: ["Down you go."],
+  mischief: ["Oops."],
+  perch: ["I'll stay here."],
+  call: ["Coming!"],
+  welcome: ["Welcome back!"],
+  hungry: ["Feed me?"],
+  eat: ["Nom."],
+  fetch: ["Got it!", "Ball!"],
+};
+
+/** Built-in pets plus the user's own picture, if they picked one. */
+function getPet(id) {
+  if (id === "custom" && settings.customImage) {
+    return {
+      id: "custom",
+      name: "Custom",
+      emoji: "🖼️",
+      food: "🍪",
+      paw: { x: 0.7, y: 0.6 },
+      svg: `<img class="custom-img" src="${settings.customImage}" alt="" draggable="false" />`,
+      lines: GENERIC_LINES,
+    };
+  }
+  return getBuiltinPet(id);
+}
+
+let pet = getPet(settings.pet);
+const line = (key) => pick(pet.lines[key] ?? GENERIC_LINES[key] ?? ["..."]);
+
+// --- geometry ----------------------------------------------------------------
+
+/** Overlay geometry, filled in by `syncScreen`. */
+let screen = { virtual: { x: 0, y: 0, w: 1920, h: 1080 }, scale: 1, monitors: [] };
+
+const state = {
+  x: 200, // top-left of the pet box, CSS px inside the overlay
+  y: 200,
+  vx: 0,
+  vy: 0,
+  facing: 1,
+  anim: "idle",
+  /** "free" while the pet runs its own life; "mission" / "break" while busy. */
+  mode: "free",
+  grounded: false,
+  /**
+   * Set when the user drops the pet somewhere with nothing to stand on. It
+   * clings there instead of falling, until it is dragged again or sent on a
+   * mission.
+   */
+  perched: false,
+  /** Name of the idle antic in progress, or null. */
+  antic: null,
+  /** Overlay hidden via tray/hotkey; timers keep running but nothing acts. */
+  hidden: false,
+  autostart: false,
+  /** "Feed"/"Throw" was chosen; the next click decides where it goes. */
+  placing: null, // null | "food" | "ball"
+  food: null, // { x, y } top-left, CSS px
+  cursor: { x: 0, y: 0 }, // CSS px inside the overlay
+  lastCursorMove: 0,
+  windows: [],
+  dragging: false,
+  hovering: false,
+};
+
+const toCssX = (px) => (px - screen.virtual.x) / screen.scale;
+const toCssY = (py) => (py - screen.virtual.y) / screen.scale;
+const toPhysX = (cx) => Math.round(cx * screen.scale + screen.virtual.x);
+const toPhysY = (cy) => Math.round(cy * screen.scale + screen.virtual.y);
+
+const cssRect = (r) => ({
+  x: toCssX(r.x),
+  y: toCssY(r.y),
+  w: r.w / screen.scale,
+  h: r.h / screen.scale,
+});
+
+const footX = () => state.x + SIZE / 2;
+const footY = () => state.y + SIZE;
+const overlayW = () => screen.virtual.w / screen.scale;
+const overlayH = () => screen.virtual.h / screen.scale;
+
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const now = () => performance.now();
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** The monitor under an overlay x (and optionally y), as a CSS rect. */
+function monitorAt(x, y) {
+  const mons = screen.monitors.map(cssRect);
+  const hit =
+    mons.find((m) => x >= m.x && x < m.x + m.w && (y == null || (y >= m.y && y < m.y + m.h))) ??
+    mons.find((m) => x >= m.x && x < m.x + m.w);
+  return hit ?? { x: 0, y: 0, w: overlayW(), h: overlayH() };
+}
+
+/** Bottom edge of the screen the pet is on, so it never sinks below a shorter monitor. */
+const floorAt = (x, y) => {
+  const m = monitorAt(x, y);
+  return m.y + m.h;
+};
+
+// --- time of day -------------------------------------------------------------
+
+const hour = () => new Date().getHours();
+const isLateNight = () => hour() >= 23 || hour() < 5;
+
+function timeGreeting() {
+  const h = hour();
+  if (h >= 5 && h < 11) return pick(["Morning! ☀️", "Good morning. Coffee first?", "Up early, are we?"]);
+  if (h >= 11 && h < 14) return pick(["Lunch soon?", "Midday already."]);
+  if (h >= 18 && h < 23) return pick(["Evening. 🌇", "Winding down?"]);
+  if (isLateNight()) return pick(["It's late. Go to bed, human. 🌙", "Sleep is a feature, you know."]);
+  return null;
+}
+
+// --- sounds ------------------------------------------------------------------
+// Everything is synthesised with WebAudio, so there are no files to ship.
+
+let audioCtx = null;
+
+function audio() {
+  if (!settings.sound) return null;
+  try {
+    audioCtx ??= new AudioContext();
+    if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+    return audioCtx;
+  } catch {
+    return null;
+  }
+}
+
+const gainFor = (ctx, level) => {
+  const g = ctx.createGain();
+  g.gain.value = (settings.volume / 100) * level;
+  g.connect(ctx.destination);
+  return g;
+};
+
+/** Short rising two-note chirp: greeting, menu confirm. */
+function playChirp() {
+  const ctx = audio();
+  if (!ctx) return;
+  const g = gainFor(ctx, 0.18);
+  const o = ctx.createOscillator();
+  o.type = "sine";
+  const t = ctx.currentTime;
+  o.frequency.setValueAtTime(620, t);
+  o.frequency.exponentialRampToValueAtTime(980, t + 0.09);
+  o.frequency.setValueAtTime(880, t + 0.11);
+  o.frequency.exponentialRampToValueAtTime(1240, t + 0.2);
+  g.gain.setValueAtTime(g.gain.value, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.24);
+  o.connect(g);
+  o.start(t);
+  o.stop(t + 0.25);
+}
+
+/** Low rumbling purr for ~1.6 s. */
+function playPurr() {
+  const ctx = audio();
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const g = gainFor(ctx, 0.22);
+  const base = ctx.createOscillator();
+  base.type = "sawtooth";
+  base.frequency.value = 27;
+  const lp = ctx.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.frequency.value = 180;
+  // amplitude flutter, the "rrr" in purr
+  const lfo = ctx.createOscillator();
+  lfo.frequency.value = 24;
+  const lfoGain = ctx.createGain();
+  lfoGain.gain.value = 0.5;
+  lfo.connect(lfoGain).connect(g.gain);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(g.gain.value || 0.2, t + 0.2);
+  g.gain.setValueAtTime(g.gain.value, t + 1.2);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 1.6);
+  base.connect(lp).connect(g);
+  base.start(t);
+  lfo.start(t);
+  base.stop(t + 1.65);
+  lfo.stop(t + 1.65);
+}
+
+/** Three quick crunchy bites. */
+function playMunch() {
+  const ctx = audio();
+  if (!ctx) return;
+  const t0 = ctx.currentTime;
+  for (let i = 0; i < 3; i++) {
+    const t = t0 + i * 0.22;
+    const len = 0.09;
+    const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * len), ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let j = 0; j < d.length; j++) d[j] = (Math.random() * 2 - 1) * (1 - j / d.length) ** 2;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = 1400 + Math.random() * 600;
+    bp.Q.value = 1.2;
+    const g = gainFor(ctx, 0.35);
+    src.connect(bp).connect(g);
+    src.start(t);
+  }
+}
+
+/** Soft "boing" on landing / bounce. */
+function playBoing() {
+  const ctx = audio();
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const g = gainFor(ctx, 0.12);
+  const o = ctx.createOscillator();
+  o.type = "triangle";
+  o.frequency.setValueAtTime(260, t);
+  o.frequency.exponentialRampToValueAtTime(90, t + 0.18);
+  g.gain.setValueAtTime(g.gain.value, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+  o.connect(g);
+  o.start(t);
+  o.stop(t + 0.22);
+}
+
+// --- size / speed / break settings -------------------------------------------
+
+function applySize() {
+  SIZE = SIZES[settings.size] ?? SIZES.medium;
+  document.documentElement.style.setProperty("--pet-size", `${SIZE}px`);
+}
+
+/** The tray menu lives in Rust and cannot see localStorage; keep its ticks honest. */
+function syncTray() {
+  invoke("sync_tray", {
+    size: settings.size,
+    speed: settings.speed,
+    breakMins: settings.breakMins,
+  }).catch(() => {});
+}
+
+function setSize(id, quiet) {
+  if (!SIZES[id]) return;
+  const anchorX = footX();
+  const anchorY = footY();
+  settings.size = id;
+  applySize();
+  // Keep the feet where they were so a resize does not teleport the pet.
+  state.x = anchorX - SIZE / 2;
+  state.y = anchorY - SIZE;
+  if (!quiet) {
+    saveSettings();
+    syncTray();
+  }
+}
+
+function setSpeed(id) {
+  if (!SPEEDS[id]) return;
+  settings.speed = id;
+  saveSettings();
+  syncTray();
+}
+
+function setBreak(mins) {
+  settings.breakMins = Number(mins) || 0;
+  saveSettings();
+  syncTray();
+  scheduleBreak();
+}
+
+// --- sprite ------------------------------------------------------------------
+
+function mountPet(id) {
+  pet = getPet(id);
+  settings.pet = pet.id;
+  saveSettings();
+  el.sprite.innerHTML = pet.svg;
+  say(timeGreeting() ?? line("greet"));
+  playChirp();
+}
+
+function setAnim(name) {
+  if (state.anim === name) return;
+  state.anim = name;
+  el.pet.dataset.state = name;
+}
+
+function face(dir) {
+  if (dir !== 0) state.facing = dir;
+  el.pet.style.setProperty("--facing", state.facing);
+}
+
+// --- speech ------------------------------------------------------------------
+
+let bubbleTimer = null;
+let typeTimer = null;
+
+function say(text, holdMs) {
+  if (!text) return;
+  clearTimeout(bubbleTimer);
+  clearInterval(typeTimer);
+  el.bubble.hidden = false;
+  el.bubble.classList.remove("leaving");
+  el.bubbleText.textContent = "";
+
+  let i = 0;
+  typeTimer = setInterval(() => {
+    el.bubbleText.textContent = text.slice(0, ++i);
+    if (i >= text.length) clearInterval(typeTimer);
+  }, 18);
+
+  const hold = holdMs ?? Math.max(1800, text.length * 65);
+  bubbleTimer = setTimeout(hideBubble, hold);
+}
+
+function hideBubble() {
+  if (el.bubble.hidden) return;
+  el.bubble.classList.add("leaving");
+  setTimeout(() => {
+    el.bubble.hidden = true;
+    el.bubble.classList.remove("leaving");
+  }, 180);
+}
+
+// --- surfaces ----------------------------------------------------------------
+
+/**
+ * The pet walks on the top edge of real windows, Shimeji-style, and on the
+ * bottom of its monitor otherwise. Returns the highest surface at or below the
+ * pet's feet.
+ */
+function groundUnder(x, fromY) {
+  let best = floorAt(x, fromY);
+  for (const w of state.windows) {
+    if (w.minimized) continue;
+    const r = cssRect(w.rect);
+    if (x < r.x + 6 || x > r.x + r.w - 6) continue;
+    const top = r.y;
+    if (top >= fromY - 4 && top < best) best = top;
+  }
+  return best;
+}
+
+/** Nearest window top *above* the feet within jumping reach, or null. */
+function ledgeAbove(x, fromY) {
+  let best = null;
+  for (const w of state.windows) {
+    if (w.minimized) continue;
+    const r = cssRect(w.rect);
+    if (x < r.x + 6 || x > r.x + r.w - 6) continue;
+    const top = r.y;
+    if (top < fromY - 8 && fromY - top <= HOP_REACH && (best == null || top > best)) best = top;
+  }
+  return best;
+}
+
+/** Is the pet standing on a window (not the screen floor), and how far to its edge? */
+function ledgeInfo() {
+  const gy = groundUnder(footX(), footY());
+  if (gy >= floorAt(footX(), footY()) - 1) return null;
+  for (const w of state.windows) {
+    if (w.minimized) continue;
+    const r = cssRect(w.rect);
+    if (Math.abs(r.y - gy) > 2 || footX() < r.x || footX() > r.x + r.w) continue;
+    return { rect: r, toLeft: footX() - r.x, toRight: r.x + r.w - footX() };
+  }
+  return null;
+}
+
+async function refreshWindows() {
+  try {
+    state.windows = await invoke("list_windows");
+  } catch {
+    state.windows = [];
+  }
+}
+
+// --- main loop ---------------------------------------------------------------
+
+let lastFrame = now();
+
+function frame() {
+  const t = now();
+  const dt = Math.min(0.05, (t - lastFrame) / 1000);
+  lastFrame = t;
+
+  if (state.dragging) {
+    setAnim("drag");
+  } else if (state.mode === "free") {
+    stepFree(dt, t);
+  }
+
+  applyTransform();
+  if (state.placing === "food") {
+    el.food.style.transform = `translate3d(${state.cursor.x - foodSize() / 2}px, ${state.cursor.y - foodSize() / 2}px, 0)`;
+  }
+  stepBall(dt);
+  stepBuddy(dt, t);
+  reportHitRegions();
+  requestAnimationFrame(frame);
+}
+
+function stepFree(dt, t) {
+  const cursorIdle = t - state.lastCursorMove;
+  const chasing = settings.follow && cursorIdle < SETTLE_AFTER && !state.perched;
+
+  const ground = groundUnder(footX(), footY());
+  const onGround = footY() >= ground - 1 && state.vy >= 0;
+
+  if (state.perched) {
+    state.vx = 0;
+    state.vy = 0;
+    setAnim(cursorIdle > SLEEP_AFTER() ? "sleep" : "idle");
+    face(Math.sign(state.cursor.x - footX()) || state.facing);
+  } else if (chasing) {
+    state.antic = null; // the cursor moved: drop whatever the pet was doing
+    const dx = state.cursor.x - footX();
+    const dy = state.cursor.y - footY();
+    const dist = Math.hypot(dx, dy);
+
+    if (Math.abs(dx) > ARRIVE_RADIUS * 0.35 && dist > ARRIVE_RADIUS) {
+      const speed = (dist > RUN_RADIUS ? RUN_SPEED : WALK_SPEED) * speedMul();
+      state.vx = Math.sign(dx) * speed;
+      face(Math.sign(dx));
+      setAnim(dist > RUN_RADIUS ? "run" : "walk");
+
+      // A ledge just ahead? Hop onto it instead of walking into its side.
+      const ahead = footX() + Math.sign(dx) * 26;
+      const aheadGround = groundUnder(ahead, footY());
+      if (onGround && aheadGround < ground - 8 && ground - aheadGround < HOP_REACH) {
+        state.vy = -Math.sqrt(2 * GRAVITY * (ground - aheadGround + 26));
+      }
+    } else {
+      state.vx *= 0.82;
+      setAnim(onGround ? "idle" : "walk");
+      face(Math.sign(state.cursor.x - footX()) || state.facing);
+      // Cursor is up on a window above us: climb onto it.
+      if (onGround && dy < -60) {
+        const up = ledgeAbove(footX(), footY());
+        if (up != null && state.cursor.y < up + 40) {
+          state.vy = -Math.sqrt(2 * GRAVITY * (footY() - up + 26));
+          setAnim("walk");
+        }
+      }
+    }
+  } else if (state.antic === "wander") {
+    // walking a few steps on its own; leave vx and the walk anim alone
+  } else {
+    state.vx *= 0.86;
+    if (onGround && !state.antic) {
+      setAnim(cursorIdle > SLEEP_AFTER() ? "sleep" : "idle");
+    }
+  }
+
+  // Gravity always runs, so the pet drops onto whatever window is beneath it.
+  if (!state.perched) {
+    state.vy += GRAVITY * dt;
+    state.x += state.vx * dt;
+    state.y += state.vy * dt;
+  }
+
+  const landing = groundUnder(footX(), footY());
+  if (!state.perched && state.y + SIZE >= landing) {
+    const wasFalling = state.vy > 700;
+    state.y = landing - SIZE;
+    state.vy = 0;
+    if (!state.grounded && wasFalling) {
+      bounce();
+      playBoing();
+      if (Math.random() < 0.4) say(line("land"));
+    }
+    state.grounded = true;
+  } else {
+    state.grounded = false;
+    if (state.vy > 60) setAnim("walk");
+  }
+
+  state.x = clamp(state.x, -SIZE * 0.25, overlayW() - SIZE * 0.75);
+
+  const height = Math.max(0, landing - (state.y + SIZE));
+  el.shadow.style.setProperty("--shadow-scale", clamp(1 - height / 500, 0.45, 1));
+  el.shadow.style.setProperty("--shadow-opacity", clamp(0.5 - height / 900, 0.12, 0.5));
+  el.shadow.style.transform =
+    `translate3d(${state.x}px, ${landing - 6}px, 0) scale(var(--shadow-scale, 1))`;
+}
+
+function bounce() {
+  el.pet.classList.remove("landed");
+  void el.pet.offsetWidth; // restart the CSS animation
+  el.pet.classList.add("landed");
+}
+
+function applyTransform() {
+  el.pet.style.transform = `translate3d(${state.x}px, ${state.y}px, 0)`;
+}
+
+// --- click-through hit testing ----------------------------------------------
+// Tauri has no per-region hit testing, so the Rust cursor thread needs to know
+// where the interactive bits are. Only push when something actually moved.
+
+let lastRegionKey = "";
+
+function reportHitRegions() {
+  const regions = [rectOf(el.pet)];
+  if (!el.bubble.hidden) regions.push(rectOf(el.bubble));
+  if (menuEl) regions.push(rectOf(menuEl));
+
+  const physical = regions
+    .filter(Boolean)
+    .map((r) => ({
+      x: toPhysX(r.x),
+      y: toPhysY(r.y),
+      w: Math.round(r.w * screen.scale),
+      h: Math.round(r.h * screen.scale),
+    }));
+
+  const key = physical.map((r) => `${r.x},${r.y},${r.w},${r.h}`).join("|");
+  if (key === lastRegionKey) return;
+  lastRegionKey = key;
+  invoke("set_hit_regions", { regions: physical }).catch(() => {});
+}
+
+function rectOf(node) {
+  const r = node.getBoundingClientRect();
+  return r.width && r.height ? { x: r.x, y: r.y, w: r.width, h: r.height } : null;
+}
+
+// --- tweened movement (used by missions) -------------------------------------
+
+function tween(ms, fn) {
+  return new Promise((resolve) => {
+    const start = now();
+    const tick = () => {
+      const p = Math.min(1, (now() - start) / ms);
+      fn(p);
+      if (p < 1) requestAnimationFrame(tick);
+      else resolve();
+    };
+    tick();
+  });
+}
+
+/** Hop the pet to a point along a shallow arc, so it reads as a jump. */
+async function moveTo(tx, ty) {
+  const sx = state.x;
+  const sy = state.y;
+  const dist = Math.hypot(tx - sx, ty - sy);
+  if (dist < 3) return;
+  face(Math.sign(tx - sx) || state.facing);
+  setAnim(dist > 320 ? "run" : "walk");
+  const ms = clamp((dist / (RUN_SPEED * speedMul())) * 1000, 160, 1400);
+  const arc = clamp(dist * 0.22, 10, 90);
+  await tween(ms, (p) => {
+    const ease = p < 0.5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2;
+    state.x = sx + (tx - sx) * ease;
+    state.y = sy + (ty - sy) * ease - Math.sin(Math.PI * ease) * arc;
+    state.vx = 0;
+    state.vy = 0;
+    applyTransform();
+  });
+  state.x = tx;
+  state.y = ty;
+  setAnim("idle");
+}
+
+/** Extend the arm toward a screen rect and hold it there. */
+async function reachAt(rect) {
+  const shoulderX = state.x + SIZE * pet.paw.x * state.facing + (state.facing < 0 ? SIZE : 0);
+  const shoulderY = state.y + SIZE * pet.paw.y;
+  const dx = rect.x + rect.w / 2 - shoulderX;
+  const dy = rect.y + rect.h / 2 - shoulderY;
+  // The arm hangs downward at rest, so 0deg means "straight down".
+  let angle = (Math.atan2(-dx, dy) * 180) / Math.PI;
+  if (state.facing < 0) angle = -angle;
+  const stretch = clamp(Math.hypot(dx, dy) / (SIZE * 0.32), 1, 2.6);
+
+  el.pet.style.setProperty("--arm-angle", `${clamp(angle, -170, 170)}deg`);
+  el.pet.style.setProperty("--arm-stretch", stretch.toFixed(2));
+  setAnim("reach");
+  await wait(260);
+  // A short extra push sells the "press".
+  el.pet.style.setProperty("--arm-stretch", (stretch * 1.12).toFixed(2));
+  await wait(140);
+  el.pet.style.setProperty("--arm-stretch", stretch.toFixed(2));
+  await wait(120);
+}
+
+function resetArm() {
+  el.pet.style.setProperty("--arm-angle", "0deg");
+  el.pet.style.setProperty("--arm-stretch", "1");
+  setAnim("idle");
+}
+
+// --- missions: walk over and press a real caption button ---------------------
+
+function showRing(r) {
+  Object.assign(el.ring.style, {
+    transform: `translate3d(${r.x}px, ${r.y}px, 0)`,
+    width: `${r.w}px`,
+    height: `${r.h}px`,
+  });
+  el.ring.hidden = false;
+}
+
+const hideRing = () => {
+  el.ring.hidden = true;
+};
+
+/**
+ * Send the pet to a window's caption button and have it press it.
+ * `hwnd` omitted means "whatever the user is looking at".
+ */
+async function mission(which, hwnd) {
+  if (state.mode !== "free") return;
+  state.mode = "mission";
+  state.perched = false;
+  state.antic = null;
+  try {
+    let target;
+    if (hwnd == null) {
+      target = await invoke("get_foreground_window");
+    } else {
+      const buttons = await invoke("get_caption_buttons", { hwnd });
+      const window = state.windows.find((w) => w.hwnd === hwnd);
+      target = window && buttons ? { window, buttons } : null;
+    }
+    if (!target) {
+      say("No window to poke!");
+      return;
+    }
+
+    const rect = target.buttons[which];
+    if (!rect) {
+      say("I can't find that button. 🤔");
+      return;
+    }
+
+    const r = cssRect(rect);
+    showRing(r);
+
+    // Stand on the titlebar line, just to one side of the button.
+    const fromLeft = footX() <= r.x + r.w / 2;
+    const standX = fromLeft ? r.x - SIZE * 0.8 : r.x + r.w - SIZE * 0.2;
+    const standY = r.y + r.h - SIZE;
+    await moveTo(clamp(standX, 0, overlayW() - SIZE), Math.max(0, standY));
+    face(fromLeft ? 1 : -1);
+
+    say(line(which), 1600);
+    await reachAt(r);
+
+    const ok = await invoke("press_caption_button", {
+      hwnd: target.window.hwnd,
+      which,
+      realClick: settings.realClick,
+    });
+    if (!ok) say("That window said no. 😾");
+
+    resetArm();
+    hideRing();
+    await wait(350);
+    await refreshWindows();
+  } catch (err) {
+    say("Something went wrong.");
+    console.error(err);
+  } finally {
+    resetArm();
+    hideRing();
+    state.mode = "free";
+  }
+}
+
+// --- dragging ----------------------------------------------------------------
+
+let dragOffset = { x: 0, y: 0 };
+let dragHistory = [];
+
+el.pet.addEventListener("pointerdown", (e) => {
+  audio(); // first user gesture unlocks sound
+  if (state.placing) {
+    e.stopPropagation();
+    if (e.button === 0) placeAt(footX(), footY());
+    else cancelPlacing();
+    return;
+  }
+  if (e.button !== 0) return;
+  if (state.mode === "mission") return;
+  el.pet.setPointerCapture(e.pointerId);
+  state.dragging = true;
+  state.perched = false;
+  state.vx = state.vy = 0;
+  el.pet.classList.add("dragging");
+  dragOffset = { x: e.clientX - state.x, y: e.clientY - state.y };
+  dragHistory = [{ t: now(), x: e.clientX, y: e.clientY }];
+  say(line("drag"), 1200);
+});
+
+el.pet.addEventListener("pointermove", (e) => {
+  if (!state.dragging) return;
+  state.x = e.clientX - dragOffset.x;
+  state.y = e.clientY - dragOffset.y;
+  dragHistory.push({ t: now(), x: e.clientX, y: e.clientY });
+  if (dragHistory.length > 6) dragHistory.shift();
+});
+
+function endDrag(e) {
+  if (!state.dragging) return;
+  state.dragging = false;
+  el.pet.classList.remove("dragging");
+  // Throw the pet with whatever velocity the pointer had at release.
+  const first = dragHistory[0];
+  const last = dragHistory[dragHistory.length - 1];
+  const dt = Math.max(16, last.t - first.t) / 1000;
+  state.vx = clamp((last.x - first.x) / dt, -1600, 1600);
+  state.vy = clamp((last.y - first.y) / dt, -1600, 1600);
+  state.grounded = false;
+  // A gentle drop with nothing underneath means "stay here". A throw still flies.
+  const thrown = Math.hypot(state.vx, state.vy) > 260;
+  const midAir = footY() < groundUnder(footX(), footY()) - 12;
+  state.perched = !thrown && midAir;
+  if (state.perched) {
+    state.vx = state.vy = 0;
+    say(line("perch"), 1400);
+  }
+  try {
+    el.pet.releasePointerCapture(e.pointerId);
+  } catch {
+    /* pointer already released */
+  }
+}
+
+el.pet.addEventListener("pointerup", endDrag);
+el.pet.addEventListener("pointercancel", endDrag);
+
+// --- pats, petting, double-click ---------------------------------------------
+
+let patTimer = null;
+
+el.pet.addEventListener("click", (e) => {
+  // A click that followed a real drag isn't a pat.
+  const first = dragHistory[0];
+  const last = dragHistory[dragHistory.length - 1];
+  if (first && last && Math.hypot(last.x - first.x, last.y - first.y) > 6) return;
+  if (state.mode === "break") {
+    endBreak();
+    e.stopPropagation();
+    return;
+  }
+  if (state.mode !== "free") return;
+  state.antic = null;
+  settings.stats.pats += 1;
+  saveSettings();
+  setAnim("happy");
+  say(line("click"));
+  playChirp();
+  clearTimeout(patTimer);
+  patTimer = setTimeout(() => setAnim("idle"), 1300);
+  e.stopPropagation();
+});
+
+/** Rest the cursor on the pet for a moment and it purrs, no click needed. */
+let hoverTimer = null;
+
+el.pet.addEventListener("pointerenter", () => {
+  state.hovering = true;
+  clearTimeout(hoverTimer);
+  hoverTimer = setTimeout(petting, 900);
+});
+
+el.pet.addEventListener("pointerleave", () => {
+  state.hovering = false;
+  clearTimeout(hoverTimer);
+});
+
+function petting() {
+  if (!state.hovering || state.dragging || state.mode !== "free" || state.placing) return;
+  settings.stats.pets += 1;
+  saveSettings();
+  setAnim("happy");
+  playPurr();
+  spawnHearts(3);
+  clearTimeout(patTimer);
+  patTimer = setTimeout(() => setAnim("idle"), 1500);
+  hoverTimer = setTimeout(petting, 2600);
+}
+
+function spawnHearts(n) {
+  for (let i = 0; i < n; i++) {
+    const h = document.createElement("span");
+    h.className = "heart";
+    h.textContent = pick(["❤", "💛", "🧡"]);
+    const x = state.x + SIZE * (0.25 + Math.random() * 0.5);
+    const y = state.y + SIZE * 0.2;
+    h.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+    h.style.setProperty("--drift", `${(Math.random() - 0.5) * 40}px`);
+    h.style.animationDelay = `${i * 140}ms`;
+    el.hearts.appendChild(h);
+    setTimeout(() => h.remove(), 1600 + i * 140);
+  }
+}
+
+/** Double-click: hop up onto the window you are working in and stay there. */
+el.pet.addEventListener("dblclick", async (e) => {
+  e.stopPropagation();
+  if (state.mode !== "free" || state.dragging) return;
+  clearTimeout(patTimer);
+  const target = await invoke("get_foreground_window").catch(() => null);
+  if (!target) {
+    say("No window to sit on!");
+    return;
+  }
+  state.mode = "mission"; // borrow the mode so free-roam does not fight moveTo
+  state.antic = null;
+  try {
+    say(line("call"), 1200);
+    const r = cssRect(target.window.rect);
+    const tx = clamp(r.x + r.w - SIZE * 1.6, 0, overlayW() - SIZE);
+    const ty = Math.max(0, r.y - SIZE);
+    await moveTo(tx, ty);
+    state.perched = true;
+    state.grounded = true;
+  } finally {
+    state.mode = "free";
+  }
+});
+
+// --- right-click menu on the pet --------------------------------------------
+// Plain HTML so it can show live values (hunger, current size). Arrow keys,
+// Enter and Escape work once it is open; it follows the system light/dark theme.
+
+let menuEl = null;
+
+function closeMenu() {
+  menuEl?.remove();
+  menuEl = null;
+  document.removeEventListener("keydown", onMenuKey, true);
+}
+
+function menuItems() {
+  return [
+    ["Say something", () => say(line("idle"))],
+    [`Feed ${pet.food}   (hunger ${Math.round(settings.hunger)}%)`, () => startPlacing("food")],
+    ["Throw ball ⚽", () => startPlacing("ball")],
+    ["Stats", () => showStats()],
+    ["separator"],
+    ["Minimise active window", () => mission("minimize")],
+    ["Close active window", () => confirmClose()],
+    ["separator"],
+    ...Object.values(PETS).map((p) => [
+      `${p.emoji}  ${p.name}${p.id === pet.id ? "  ✓" : ""}`,
+      () => mountPet(p.id),
+    ]),
+    [
+      settings.customImage
+        ? `🖼️  Custom${pet.id === "custom" ? "  ✓" : ""}`
+        : "🖼️  Custom pet from image…",
+      () => (settings.customImage && pet.id !== "custom" ? mountPet("custom") : pickCustomImage()),
+    ],
+    ["separator"],
+    [`Follow cursor: ${settings.follow ? "on" : "off"}`, () => toggle("follow")],
+    [`Sound: ${settings.sound ? "on" : "off"}`, () => toggle("sound")],
+    [`Size: ${settings.size}  ›`, () => setSize(cycle(Object.keys(SIZES), settings.size))],
+    [`Speed: ${settings.speed}  ›`, () => setSpeed(cycle(Object.keys(SPEEDS), settings.speed))],
+    [
+      `Break reminder: ${settings.breakMins ? `${settings.breakMins} min` : "off"}  ›`,
+      () => setBreak(cycle([0, 25, 45, 60], settings.breakMins)),
+    ],
+    ["Settings…", () => invoke("open_settings").catch(() => say("Couldn't open settings."))],
+    ["separator"],
+    [`Run at startup: ${state.autostart ? "on" : "off"}`, () => toggleAutostart()],
+    ["Hide pet  (Ctrl+Alt+P)", () => invoke("set_hidden", { hidden: true })],
+    ["separator"],
+    ["Quit PocketPet", () => invoke("quit_app")],
+  ];
+}
+
+function openMenu(x, y) {
+  closeMenu();
+  const menu = document.createElement("div");
+  menu.className = "pet-menu";
+  menu.setAttribute("role", "menu");
+
+  for (const [label, action] of menuItems()) {
+    if (label === "separator") {
+      const hr = document.createElement("div");
+      hr.className = "sep";
+      menu.appendChild(hr);
+      continue;
+    }
+    const row = document.createElement("div");
+    row.className = "row";
+    row.setAttribute("role", "menuitem");
+    row.tabIndex = -1;
+    row.textContent = label;
+    row.addEventListener("pointerenter", () => row.focus());
+    row.addEventListener("click", () => {
+      closeMenu();
+      action();
+    });
+    menu.appendChild(row);
+  }
+
+  el.stage.appendChild(menu);
+  menuEl = menu;
+  // Keep it on screen.
+  const mw = menu.offsetWidth;
+  const mh = menu.offsetHeight;
+  menu.style.left = `${clamp(x, 4, overlayW() - mw - 4)}px`;
+  menu.style.top = `${clamp(y, 4, overlayH() - mh - 4)}px`;
+  menu.querySelector(".row")?.focus();
+  document.addEventListener("keydown", onMenuKey, true);
+  setTimeout(() => document.addEventListener("pointerdown", onOutside, { once: true }), 0);
+}
+
+function onMenuKey(e) {
+  if (!menuEl) return;
+  const rows = [...menuEl.querySelectorAll(".row")];
+  const i = rows.indexOf(document.activeElement);
+  if (e.key === "Escape") closeMenu();
+  else if (e.key === "ArrowDown") rows[(i + 1) % rows.length]?.focus();
+  else if (e.key === "ArrowUp") rows[(i - 1 + rows.length) % rows.length]?.focus();
+  else if (e.key === "Home") rows[0]?.focus();
+  else if (e.key === "End") rows[rows.length - 1]?.focus();
+  else if (e.key === "Enter" || e.key === " ") document.activeElement?.click();
+  else return;
+  e.preventDefault();
+  e.stopPropagation();
+}
+
+function onOutside(e) {
+  if (menuEl && !menuEl.contains(e.target)) closeMenu();
+}
+
+el.pet.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  if (state.placing) return; // that right-click was "cancel"
+  openMenu(e.clientX + 8, e.clientY + 8);
+});
+
+function toggle(key) {
+  settings[key] = !settings[key];
+  saveSettings();
+  const name = { realClick: "Real clicks", follow: "Follow cursor", sound: "Sound" }[key] ?? key;
+  say(`${name} ${settings[key] ? "on" : "off"}`, 1400);
+  if (key === "sound" && settings.sound) playChirp();
+}
+
+/** Next entry after `current`, wrapping around. */
+const cycle = (list, current) => list[(list.indexOf(current) + 1) % list.length];
+
+async function toggleAutostart() {
+  const want = !state.autostart;
+  const ok = await invoke("set_autostart", { enabled: want }).catch(() => false);
+  state.autostart = ok ? want : state.autostart;
+  say(ok ? `Run at startup ${want ? "on" : "off"}` : "Couldn't change startup setting.", 1600);
+}
+
+async function pickCustomImage() {
+  try {
+    const url = await invoke("pick_image");
+    if (!url) return;
+    settings.customImage = url;
+    saveSettings();
+    mountPet("custom");
+  } catch (err) {
+    say(String(err), 3200);
+  }
+}
+
+// --- stats -------------------------------------------------------------------
+
+function showStats() {
+  const s = settings.stats;
+  const days = Math.max(1, Math.round((Date.now() - s.firstRun) / 86_400_000));
+  const up = Math.round(performance.now() / 60_000);
+  const bar = (v) => "█".repeat(Math.round(v / 10)) + "░".repeat(10 - Math.round(v / 10));
+  say(
+    [
+      `${pet.emoji} ${pet.name} — day ${days} together`,
+      `Hunger  ${bar(settings.hunger)} ${Math.round(settings.hunger)}%`,
+      `Meals ${s.meals} · Pats ${s.pats} · Cuddles ${s.pets} · Fetches ${s.fetches}`,
+      `Awake ${up} min this session`,
+    ].join("\n"),
+    7000,
+  );
+}
+
+/**
+ * Closing someone's window can lose unsaved work, so it is never automatic:
+ * the pet asks first and only acts on a second, explicit confirmation.
+ */
+async function confirmClose() {
+  const target = await invoke("get_foreground_window");
+  if (!target) {
+    say("Nothing focused to close.");
+    return;
+  }
+  const title = target.window.title.slice(0, 40);
+  say(`Close "${title}"?\nClick me to confirm.`, 5000);
+  const onConfirm = () => {
+    clearTimeout(timeout);
+    el.pet.removeEventListener("click", onConfirm, true);
+    mission("close", target.window.hwnd);
+  };
+  el.pet.addEventListener("click", onConfirm, true);
+  const timeout = setTimeout(() => {
+    el.pet.removeEventListener("click", onConfirm, true);
+  }, 5000);
+}
+
+// --- placing things (food, ball) --------------------------------------------
+// "Feed"/"Throw" turn the whole overlay clickable for one click so the user can
+// point anywhere; the Rust cursor thread honours `set_capture_all`.
+
+let placeTimer = null;
+const foodSize = () => SIZE * 0.5;
+const ballSize = () => SIZE * 0.36;
+
+function startPlacing(kind) {
+  if (state.mode !== "free" || state.dragging || state.placing) return;
+  state.placing = kind;
+  if (kind === "food") {
+    el.food.textContent = pet.food;
+    el.food.style.fontSize = `${foodSize()}px`;
+    el.food.classList.remove("eaten");
+    el.food.classList.add("placing");
+    el.food.hidden = false;
+    say("Click anywhere to put the food down.\nRight-click to cancel.", 15_000);
+  } else {
+    say("Click where to throw the ball.\nRight-click to cancel.", 15_000);
+  }
+  invoke("set_capture_all", { enabled: true }).catch(() => {});
+  document.addEventListener("pointerdown", onPlaceClick, true);
+  placeTimer = setTimeout(cancelPlacing, 15_000);
+}
+
+function onPlaceClick(e) {
+  if (!state.placing) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.button === 0) placeAt(e.clientX, e.clientY);
+  else cancelPlacing();
+}
+
+function stopPlacing() {
+  clearTimeout(placeTimer);
+  document.removeEventListener("pointerdown", onPlaceClick, true);
+  const kind = state.placing;
+  state.placing = null;
+  el.food.classList.remove("placing");
+  invoke("set_capture_all", { enabled: false }).catch(() => {});
+  return kind;
+}
+
+function cancelPlacing() {
+  if (!state.placing) return;
+  const kind = stopPlacing();
+  if (kind === "food") el.food.hidden = true;
+  hideBubble();
+}
+
+function placeAt(x, y) {
+  const kind = stopPlacing();
+  hideBubble();
+  if (kind === "food") placeFood(x, y);
+  else if (kind === "ball") throwBall(x, y);
+}
+
+// --- feeding -----------------------------------------------------------------
+
+let hungerSaidAt = 0;
+
+function tickHunger() {
+  const nowMs = Date.now();
+  const minutes = Math.max(0, (nowMs - settings.hungerAt) / 60_000);
+  const before = settings.hunger;
+  settings.hunger = clamp(
+    settings.hunger + minutes * HUNGER_PER_MIN * (settings.hungerRate / 100),
+    0,
+    100,
+  );
+  settings.hungerAt = nowMs;
+  saveSettings();
+  // Say something once when crossing into hungry, not every tick.
+  const crossed = before < HUNGRY_AT && settings.hunger >= HUNGRY_AT;
+  if (crossed && state.mode === "free" && now() - hungerSaidAt > 60_000) {
+    hungerSaidAt = now();
+    say(line("hungry"));
+  }
+}
+
+/** Drop the food at (x, y): it lands on whatever ledge is beneath that point. */
+function placeFood(x, y) {
+  const size = foodSize();
+  const floor = groundUnder(x, y);
+  state.food = { x: clamp(x - size / 2, 0, overlayW() - size), y: floor - size };
+  el.food.style.transform = `translate3d(${state.food.x}px, ${state.food.y}px, 0)`;
+  eatMission();
+}
+
+async function eatMission() {
+  if (state.mode !== "free" || !state.food) return;
+  state.mode = "mission";
+  state.perched = false;
+  state.antic = null;
+  try {
+    const food = state.food;
+    const size = foodSize();
+    const foodCx = food.x + size / 2;
+    const fromLeft = footX() <= foodCx;
+    const standX = fromLeft ? foodCx - SIZE * 0.78 : foodCx - SIZE * 0.22;
+    await moveTo(clamp(standX, 0, overlayW() - SIZE), food.y + size - SIZE);
+    face(fromLeft ? 1 : -1);
+    setAnim("eat");
+    el.food.classList.add("eaten");
+    playMunch();
+    await wait(1700);
+    el.food.hidden = true;
+    state.food = null;
+    settings.hunger = clamp(settings.hunger - 55, 0, 100);
+    settings.stats.meals += 1;
+    settings.hungerAt = Date.now();
+    saveSettings();
+    setAnim("happy");
+    say(line("eat"));
+    await wait(900);
+  } finally {
+    setAnim("idle");
+    state.mode = "free";
+  }
+}
+
+// --- ball / fetch ------------------------------------------------------------
+
+const ball = {
+  active: false,
+  x: 0,
+  y: 0,
+  vx: 0,
+  vy: 0,
+  carried: false,
+  returnTo: null, // where the user was when they threw it
+  fadeTimer: null,
+};
+
+function throwBall(tx, ty) {
+  clearTimeout(ball.fadeTimer);
+  el.ball.classList.remove("fading");
+  el.ball.style.fontSize = `${ballSize()}px`;
+  el.ball.hidden = false;
+  // Launch from the pet toward the click along a lob.
+  ball.active = true;
+  ball.carried = false;
+  ball.x = footX() - ballSize() / 2;
+  ball.y = state.y + SIZE * 0.4;
+  const dx = tx - ball.x;
+  const flight = clamp(Math.abs(dx) / 700, 0.45, 1.1);
+  ball.vx = dx / flight;
+  ball.vy = ((ty - ballSize() - ball.y) - 0.5 * GRAVITY * flight * flight) / flight;
+  ball.returnTo = { x: state.cursor.x, y: state.cursor.y };
+  settings.stats.fetches += 1;
+  saveSettings();
+  playChirp();
+  setTimeout(fetchMission, 350);
+}
+
+function stepBall(dt) {
+  if (!ball.active) return;
+  const size = ballSize();
+  if (ball.carried) {
+    // Held in front of the pet.
+    ball.x = state.x + (state.facing > 0 ? SIZE * 0.72 : SIZE * 0.28 - size);
+    ball.y = state.y + SIZE * 0.55;
+  } else {
+    ball.vy += GRAVITY * dt;
+    ball.x += ball.vx * dt;
+    ball.y += ball.vy * dt;
+    const floor = groundUnder(ball.x + size / 2, ball.y + size);
+    if (ball.y + size >= floor) {
+      ball.y = floor - size;
+      if (ball.vy > 120) {
+        ball.vy = -ball.vy * 0.45;
+        playBoing();
+      } else ball.vy = 0;
+      ball.vx *= 0.96; // rolling friction
+    }
+    if (ball.x < 0 || ball.x + size > overlayW()) {
+      ball.x = clamp(ball.x, 0, overlayW() - size);
+      ball.vx = -ball.vx * 0.6;
+    }
+    if (Math.abs(ball.vx) < 4 && ball.vy === 0) ball.vx = 0;
+  }
+  el.ball.style.transform = `translate3d(${ball.x}px, ${ball.y}px, 0) rotate(${ball.x * 3}deg)`;
+}
+
+async function fetchMission() {
+  if (state.mode !== "free" || !ball.active) return;
+  state.mode = "mission";
+  state.perched = false;
+  state.antic = null;
+  try {
+    // Chase until close; the ball is still rolling, so re-aim each hop.
+    for (let i = 0; i < 8 && ball.active; i++) {
+      const size = ballSize();
+      const bx = ball.x + size / 2;
+      const by = ball.y + size;
+      const fromLeft = footX() <= bx;
+      const standX = fromLeft ? bx - SIZE * 0.72 : bx - SIZE * 0.28;
+      await moveTo(clamp(standX, 0, overlayW() - SIZE), groundUnder(bx, by) - SIZE);
+      face(fromLeft ? 1 : -1);
+      if (Math.abs(footX() - bx) < SIZE * 0.6 && Math.abs(footY() - by) < SIZE * 0.6) break;
+      await wait(120);
+    }
+    ball.carried = true;
+    ball.vx = ball.vy = 0;
+    say(line("fetch"), 1200);
+    // Bring it back to where the user was, or just to the cursor now.
+    const to = ball.returnTo ?? state.cursor;
+    const homeX = clamp(to.x - SIZE / 2, 0, overlayW() - SIZE);
+    await moveTo(homeX, groundUnder(to.x, to.y) - SIZE);
+    face(Math.sign(state.cursor.x - footX()) || state.facing);
+    // Drop it.
+    ball.carried = false;
+    ball.vx = state.facing * 90;
+    ball.vy = -220;
+    setAnim("happy");
+    await wait(900);
+  } finally {
+    setAnim("idle");
+    state.mode = "free";
+    ball.fadeTimer = setTimeout(() => {
+      el.ball.classList.add("fading");
+      setTimeout(() => {
+        el.ball.hidden = true;
+        ball.active = false;
+      }, 700);
+    }, 6000);
+  }
+}
+
+// --- companion ---------------------------------------------------------------
+// A second animal that tags along behind the main pet. It has no brain of its
+// own beyond "walk toward my spot, fall onto ledges, copy the mood".
+
+const buddy = { pet: null, x: 0, y: 0, vx: 0, vy: 0, facing: 1, anim: "idle" };
+
+function mountBuddy(id) {
+  settings.companion = id || "";
+  if (!id) {
+    buddy.pet = null;
+    el.buddy.hidden = true;
+    return;
+  }
+  buddy.pet = getPet(id);
+  el.buddySprite.innerHTML = buddy.pet.svg;
+  el.buddy.hidden = false;
+  buddy.x = state.x - SIZE * 1.3;
+  buddy.y = state.y;
+}
+
+function setBuddyAnim(name) {
+  if (buddy.anim === name) return;
+  buddy.anim = name;
+  el.buddy.dataset.state = name;
+}
+
+function stepBuddy(dt, t) {
+  if (!buddy.pet || state.hidden) return;
+  const size = SIZE * 0.85;
+  const fx = buddy.x + size / 2;
+  const fy = buddy.y + size;
+  // Its spot: a body-length behind the pet, on the side away from where it faces.
+  const targetX = footX() - state.facing * SIZE * 1.15;
+  const dx = targetX - fx;
+  const ground = groundUnder(fx, fy);
+  const onGround = fy >= ground - 1 && buddy.vy >= 0;
+
+  if (state.dragging || state.mode === "break") {
+    buddy.vx *= 0.85;
+    if (onGround) setBuddyAnim(state.mode === "break" ? "stretch" : "idle");
+  } else if (Math.abs(dx) > 40) {
+    const speed = (Math.abs(dx) > 400 ? RUN_SPEED : WALK_SPEED) * speedMul();
+    buddy.vx = Math.sign(dx) * speed;
+    buddy.facing = Math.sign(dx);
+    setBuddyAnim(Math.abs(dx) > 400 ? "run" : "walk");
+    const aheadGround = groundUnder(fx + Math.sign(dx) * 26, fy);
+    if (onGround && aheadGround < ground - 8 && ground - aheadGround < HOP_REACH) {
+      buddy.vy = -Math.sqrt(2 * GRAVITY * (ground - aheadGround + 26));
+    }
+  } else {
+    buddy.vx *= 0.8;
+    if (onGround) setBuddyAnim(state.anim === "sleep" ? "sleep" : "idle");
+    buddy.facing = Math.sign(footX() - fx) || buddy.facing;
+  }
+
+  buddy.vy += GRAVITY * dt;
+  buddy.x += buddy.vx * dt;
+  buddy.y += buddy.vy * dt;
+  const landing = groundUnder(buddy.x + size / 2, buddy.y + size);
+  if (buddy.y + size >= landing) {
+    buddy.y = landing - size;
+    buddy.vy = 0;
+  }
+  buddy.x = clamp(buddy.x, -size * 0.25, overlayW() - size * 0.75);
+  el.buddy.style.setProperty("--facing", buddy.facing);
+  el.buddy.style.transform = `translate3d(${buddy.x}px, ${buddy.y}px, 0)`;
+}
+
+// --- break reminder ----------------------------------------------------------
+
+let breakTimer = null;
+let breakDismiss = null;
+
+/** (Re)arm the reminder. `ms` overrides the configured interval (used to snooze). */
+function scheduleBreak(ms) {
+  clearTimeout(breakTimer);
+  if (!settings.breakMins) return;
+  breakTimer = setTimeout(startBreak, ms ?? settings.breakMins * 60_000);
+}
+
+async function startBreak() {
+  if (state.hidden) {
+    // Can't nag on screen; use a toast instead and try again next interval.
+    if (settings.toasts) {
+      invoke("notify", {
+        title: "Break time",
+        body: `${settings.breakMins} minutes done. Stand up, stretch, look far away.`,
+      }).catch(() => {});
+    }
+    scheduleBreak();
+    return;
+  }
+  // Busy: try again in a minute rather than skipping the break.
+  if (state.mode !== "free" || state.dragging) {
+    scheduleBreak(60_000);
+    return;
+  }
+  state.mode = "break";
+  state.perched = false;
+  state.antic = null;
+  try {
+    const mon = monitorAt(footX(), footY());
+    const cx = mon.x + mon.w / 2 - SIZE / 2;
+    const floor = groundUnder(cx + SIZE / 2, mon.y + mon.h);
+    await moveTo(cx, floor - SIZE);
+    setAnim("stretch");
+    playChirp();
+    say(
+      `Break time! ${settings.breakMins} minutes done.\nStand up, stretch, look far away.\nClick me when you're back.`,
+      10 * 60_000,
+    );
+    await new Promise((resolve) => {
+      breakDismiss = resolve;
+    });
+  } finally {
+    breakDismiss = null;
+    state.mode = "free";
+    setAnim("idle");
+    scheduleBreak();
+  }
+}
+
+function endBreak() {
+  if (state.mode !== "break") return;
+  hideBubble();
+  breakDismiss?.();
+  setTimeout(() => say(line("welcome"), 1600), 250);
+}
+
+// --- idle antics -------------------------------------------------------------
+// Small things the pet does on its own once the cursor has been still a while,
+// so it feels alive without being a distraction.
+
+const ANTICS = ["yawn", "stretch", "look", "spin", "wander"];
+let anticTimer = null;
+
+function scheduleAntic() {
+  clearTimeout(anticTimer);
+  anticTimer = setTimeout(tryAntic, 9_000 + Math.random() * 16_000);
+}
+
+async function tryAntic() {
+  const idle = now() - state.lastCursorMove;
+  const calm =
+    state.mode === "free" &&
+    !state.dragging &&
+    !state.hidden &&
+    !state.placing &&
+    state.grounded &&
+    !state.antic &&
+    idle > 6_000 &&
+    idle < SLEEP_AFTER();
+  if (calm) {
+    // Standing near the edge of a window: peek over it instead.
+    const ledge = ledgeInfo();
+    const nearEdge = ledge && Math.min(ledge.toLeft, ledge.toRight) < SIZE * 0.9;
+    const antic = nearEdge && Math.random() < 0.6 ? "peek" : pick(ANTICS);
+    state.antic = antic;
+    if (antic === "peek") {
+      face(ledge.toLeft < ledge.toRight ? -1 : 1);
+      setAnim("peek");
+      await wait(1800);
+      if (state.antic === antic) setAnim("idle");
+    } else if (antic === "wander") {
+      // Don't wander off a window; pick the direction with room.
+      let dir = Math.random() < 0.5 ? -1 : 1;
+      if (ledge) dir = ledge.toLeft > ledge.toRight ? -1 : 1;
+      face(dir);
+      state.vx = dir * WALK_SPEED * 0.5 * speedMul();
+      setAnim("walk");
+      await wait(700 + Math.random() * 900);
+      if (state.antic === "wander") {
+        state.vx = 0;
+        setAnim("idle");
+      }
+    } else {
+      setAnim(antic);
+      await wait(antic === "spin" ? 900 : 1500);
+      if (state.antic === antic) setAnim("idle");
+    }
+    if (state.antic === antic) state.antic = null;
+  }
+  scheduleAntic();
+}
+
+// --- ambient behaviour -------------------------------------------------------
+
+function scheduleChatter() {
+  // chatter 0 = never, 100 = every ~30 s, 50 = every ~1-2 min
+  const base = settings.chatter <= 0 ? Infinity : 30_000 + (100 - settings.chatter) * 900;
+  const delay = base + Math.random() * base * 0.8;
+  setTimeout(() => {
+    if (
+      Number.isFinite(delay) &&
+      state.mode === "free" &&
+      state.anim !== "sleep" &&
+      !state.dragging &&
+      !state.hidden
+    ) {
+      const hungry = settings.hunger >= HUNGRY_AT && Math.random() < 0.7;
+      const late = isLateNight() && Math.random() < 0.4;
+      say(hungry ? line("hungry") : late ? timeGreeting() : line("idle"));
+    }
+    scheduleChatter();
+  }, Number.isFinite(delay) ? delay : 60_000);
+}
+
+/**
+ * Mischief mode only ever minimises, never closes. An autonomous close would
+ * risk destroying unsaved work in someone else's app.
+ */
+function scheduleMischief() {
+  const delay = 60_000 + Math.random() * 90_000;
+  setTimeout(async () => {
+    if (settings.mischief && state.mode === "free" && !state.dragging && !state.hidden) {
+      const candidates = state.windows.filter((w) => !w.minimized && !w.foreground);
+      if (candidates.length) {
+        const victim = pick(candidates);
+        say(line("mischief"), 2200);
+        await mission("minimize", victim.hwnd);
+      }
+    }
+    scheduleMischief();
+  }, delay);
+}
+
+// --- wiring ------------------------------------------------------------------
+
+async function syncScreen() {
+  screen = await invoke("get_screen");
+}
+
+listen("pet://cursor", ({ payload }) => {
+  const x = toCssX(payload.x);
+  const y = toCssY(payload.y);
+  if (Math.hypot(x - state.cursor.x, y - state.cursor.y) > 1.5) {
+    state.lastCursorMove = now();
+  }
+  state.cursor.x = x;
+  state.cursor.y = y;
+});
+
+listen("pet://menu", ({ payload }) => {
+  const id = String(payload?.id ?? payload);
+  const value = payload?.value;
+  if (id.startsWith("pet:")) return mountPet(id.slice(4));
+  if (id.startsWith("size:")) return setSize(id.slice(5));
+  if (id.startsWith("speed:")) return setSpeed(id.slice(6));
+  if (id.startsWith("break:")) return setBreak(id.slice(6));
+  if (id === "toggle:hidden") {
+    state.hidden = Boolean(value);
+    // Fade out before Rust hides the window; fade back in after it shows.
+    el.stage.classList.toggle("hidden", state.hidden);
+    if (state.hidden) cancelPlacing();
+    return;
+  }
+  if (id === "toggle:follow") settings.follow = value ?? !settings.follow;
+  else if (id === "toggle:mischief") settings.mischief = value ?? !settings.mischief;
+  else if (id === "toggle:realclick") settings.realClick = value ?? !settings.realClick;
+  else if (id === "act:say") say(line("idle"));
+  else if (id === "act:feed") return startPlacing("food");
+  else if (id === "act:ball") return startPlacing("ball");
+  else if (id === "act:minimize") return mission("minimize");
+  else if (id === "act:close") return confirmClose();
+  saveSettings();
+});
+
+listen("pet://settings", ({ payload }) => reloadSettings(payload));
+
+async function boot() {
+  applySize();
+  await syncScreen();
+  await refreshWindows();
+  state.autostart = await invoke("get_autostart").catch(() => false);
+  syncTray();
+  mountPet(settings.pet);
+  mountBuddy(settings.companion);
+  face(1);
+  const mon = monitorAt(overlayW() * 0.5, overlayH() * 0.5);
+  state.x = mon.x + mon.w * 0.5;
+  state.y = mon.y + mon.h - SIZE - 60;
+  state.lastCursorMove = now();
+
+  setInterval(refreshWindows, 700);
+  setInterval(syncScreen, 5000); // catch monitor hot-plug / resolution changes
+  scheduleChatter();
+  scheduleMischief();
+  scheduleBreak();
+  scheduleAntic();
+  tickHunger();
+  setInterval(tickHunger, 30_000);
+  requestAnimationFrame(frame);
+}
+
+// Debug hook: lets devtools (or a CDP script) poke at live state.
+window.__pet = { state, get settings() { return settings; }, ball, buddy, say, startPlacing, mission };
+
+boot();
