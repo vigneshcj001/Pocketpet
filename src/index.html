@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PocketPet</title>
     <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="games.css" />
   </head>
   <body>
     <!-- The whole page is a transparent, click-through overlay covering every
@@ -14,10 +15,19 @@
       <div id="pet" class="pet">
         <div id="bubble" class="bubble" hidden><span id="bubble-text"></span></div>
         <div id="sprite" class="sprite"></div>
+        <!-- Unlockable hat/bow, drawn over the head. -->
+        <span id="accessory" class="accessory" hidden></span>
+        <!-- Fullness bar; hidden unless the setting is on. -->
+        <div id="hunger" class="hunger" hidden><div id="hunger-fill" class="hunger-fill"></div></div>
       </div>
+      <!-- "break in 12:34" pill; positioned above the pet each frame. -->
+      <div id="countdown" class="countdown" hidden></div>
       <div id="shadow" class="shadow"></div>
       <!-- Optional second pet. Click-through; it just tags along. -->
-      <div id="buddy" class="pet buddy" hidden><div id="buddy-sprite" class="sprite"></div></div>
+      <div id="buddy" class="pet buddy" hidden>
+        <div id="buddy-sprite" class="sprite"></div>
+        <span id="buddy-accessory" class="accessory" hidden></span>
+      </div>
       <!-- Food the user placed; the pet runs over and eats it. -->
       <div id="food" class="food" hidden></div>
       <!-- Ball for fetch. Same click-to-place mechanic as food. -->

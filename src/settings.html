@@ -8,66 +8,221 @@
   </head>
   <body>
     <!-- Shares localStorage with the overlay (same origin). Every change is
-         saved immediately and broadcast as a Tauri event; the overlay reloads
-         its settings on that event. -->
-    <main>
+         validated by preferences.js, saved immediately and broadcast as a
+         Tauri event; the overlay reloads its settings on that event. -->
+    <header>
       <h1>PocketPet</h1>
+      <nav id="tabs" role="tablist">
+        <button role="tab" data-tab="general" aria-selected="true">General</button>
+        <button role="tab" data-tab="pets">Pets</button>
+        <button role="tab" data-tab="screen">Focus &amp; screen</button>
+        <button role="tab" data-tab="breaks">Breaks</button>
+        <button role="tab" data-tab="controls">Controls</button>
+        <button role="tab" data-tab="dashboard">Dashboard</button>
+        <button role="tab" data-tab="backup">Backup</button>
+      </nav>
+    </header>
 
-      <section>
-        <h2>Pet</h2>
-        <label>Pet <select id="pet"></select></label>
-        <label>Companion <select id="companion"></select></label>
-        <label>Size
-          <select id="size">
-            <option value="small">Small</option>
-            <option value="medium">Medium</option>
-            <option value="large">Large</option>
-          </select>
-        </label>
-        <label>Speed
-          <select id="speed">
-            <option value="slow">Slow</option>
-            <option value="normal">Normal</option>
-            <option value="fast">Fast</option>
-          </select>
-        </label>
+    <main>
+      <!-- ================= General ================= -->
+      <section data-panel="general">
+        <div class="card">
+          <h2>Pet</h2>
+          <label>Active pet <select id="pet"></select></label>
+          <label>Companion <select id="companion"></select></label>
+          <label>Size
+            <select id="size">
+              <option value="small">Small</option>
+              <option value="medium">Medium</option>
+              <option value="large">Large</option>
+            </select>
+          </label>
+          <label>Speed
+            <select id="speed">
+              <option value="slow">Slow</option>
+              <option value="normal">Normal</option>
+              <option value="fast">Fast</option>
+            </select>
+          </label>
+          <label>Toy
+            <select id="toy">
+              <option value="ball">⚽ Ball</option>
+              <option value="yarn">🧶 Yarn</option>
+              <option value="frisbee">🥏 Frisbee</option>
+            </select>
+          </label>
+        </div>
+        <div class="card">
+          <h2>Behaviour</h2>
+          <label class="row"><input type="checkbox" id="follow" /> Follow cursor</label>
+          <label class="row"><input type="checkbox" id="mischief" /> Mischief mode (minimises windows on its own)</label>
+          <label class="row"><input type="checkbox" id="realClick" /> Use real mouse clicks for buttons</label>
+          <label>Chatter <span class="hint" id="chatterHint"></span>
+            <input type="range" id="chatter" min="0" max="100" step="5" />
+          </label>
+        </div>
+        <div class="card">
+          <h2>Hunger</h2>
+          <label>Hunger rate <span class="hint" id="hungerRateHint"></span>
+            <input type="range" id="hungerRate" min="0" max="200" step="10" />
+          </label>
+          <label class="row"><input type="checkbox" id="showHunger" /> Show fullness bar under the pet</label>
+          <label class="row"><input type="checkbox" id="pauseHungerOffline" /> Pause hunger while PocketPet is closed</label>
+          <p class="hint" id="hungerNow"></p>
+        </div>
+        <div class="card">
+          <h2>Sound</h2>
+          <label class="row"><input type="checkbox" id="sound" /> Sounds on</label>
+          <label>Volume <span class="hint" id="volumeHint"></span>
+            <input type="range" id="volume" min="0" max="100" step="5" />
+          </label>
+        </div>
+        <div class="card">
+          <h2>Power</h2>
+          <label class="row"><input type="checkbox" id="lowPower" /> Low-power mode (15 fps, fewer window scans)</label>
+          <p class="hint">Also kicks in automatically while the pet is hidden.</p>
+        </div>
       </section>
 
-      <section>
-        <h2>Behaviour</h2>
-        <label class="row"><input type="checkbox" id="follow" /> Follow cursor</label>
-        <label class="row"><input type="checkbox" id="mischief" /> Mischief mode (minimises windows on its own)</label>
-        <label class="row"><input type="checkbox" id="realClick" /> Use real mouse clicks for buttons</label>
-        <label>Chatter <span class="hint" id="chatterHint"></span>
-          <input type="range" id="chatter" min="0" max="100" step="5" />
-        </label>
-        <label>Hunger rate <span class="hint" id="hungerHint"></span>
-          <input type="range" id="hungerRate" min="0" max="200" step="10" />
-        </label>
+      <!-- ================= Pets ================= -->
+      <section data-panel="pets" hidden>
+        <div class="card">
+          <h2>Customise <span id="customiseWho" class="hint"></span></h2>
+          <label>Which pet <select id="customisePet"></select></label>
+          <label>Name <input type="text" id="petName" maxlength="40" placeholder="Leave empty for the default" /></label>
+          <label>Personality
+            <select id="personality">
+              <option value="playful">Playful — faster, chattier, rarely sleeps</option>
+              <option value="calm">Calm — the default</option>
+              <option value="sleepy">Sleepy — slower, dozes off quickly</option>
+            </select>
+          </label>
+          <label>Colour <span class="hint" id="colorHint"></span>
+            <input type="range" id="color" min="0" max="360" step="5" />
+          </label>
+          <label>Accessory <select id="accessory"></select></label>
+          <p class="hint" id="accessoryHint"></p>
+        </div>
+        <div class="card">
+          <h2>Custom image pets</h2>
+          <p class="hint">Any PNG, GIF, JPG or WebP. It is squared, shrunk to 256 px and kept in your settings. Up to 12.</p>
+          <button type="button" id="addCustom">Add a picture…</button>
+          <ul id="customList" class="list"></ul>
+        </div>
       </section>
 
-      <section>
-        <h2>Reminders</h2>
-        <label>Break reminder
-          <select id="breakMins">
-            <option value="0">Off</option>
-            <option value="25">Every 25 min</option>
-            <option value="45">Every 45 min</option>
-            <option value="60">Every 60 min</option>
-          </select>
-        </label>
-        <label class="row"><input type="checkbox" id="toasts" /> Windows notification when the pet is hidden</label>
+      <!-- ================= Focus & screen ================= -->
+      <section data-panel="screen" hidden>
+        <div class="card">
+          <h2>Focus mode</h2>
+          <label class="row"><input type="checkbox" id="focusFullscreen" /> When a fullscreen app is in front (games, slideshows)</label>
+          <label class="row"><input type="checkbox" id="quietHours" /> During quiet hours</label>
+          <div class="pair">
+            <label>From <input type="time" id="quietStart" /></label>
+            <label>To <input type="time" id="quietEnd" /></label>
+          </div>
+          <label>Then
+            <select id="focusAction">
+              <option value="quiet">Stay, but quiet — no talking, sounds, nags or wandering</option>
+              <option value="hide">Hide completely</option>
+            </select>
+          </label>
+        </div>
+        <div class="card">
+          <h2>Where it can go</h2>
+          <label>Monitor <select id="monitor"></select></label>
+          <label>Margin from screen edges <span class="hint" id="roamMarginHint"></span>
+            <input type="range" id="roamMargin" min="0" max="200" step="4" />
+          </label>
+          <label class="row"><input type="checkbox" id="roamBottomOnly" /> Keep to the bottom strip of the screen</label>
+        </div>
+        <div class="card">
+          <h2>Keep-out area</h2>
+          <label class="row"><input type="checkbox" id="avoidEnabled" /> Keep the pet out of part of the screen</label>
+          <div class="grid2">
+            <label>Left % <input type="number" id="avoidX" min="0" max="95" /></label>
+            <label>Top % <input type="number" id="avoidY" min="0" max="95" /></label>
+            <label>Width % <input type="number" id="avoidW" min="5" max="100" /></label>
+            <label>Height % <input type="number" id="avoidH" min="5" max="100" /></label>
+          </div>
+          <div id="avoidPreview" class="preview" aria-hidden="true"><div class="preview-box"></div></div>
+        </div>
       </section>
 
-      <section>
-        <h2>Sound</h2>
-        <label class="row"><input type="checkbox" id="sound" /> Sounds on</label>
-        <label>Volume <span class="hint" id="volumeHint"></span>
-          <input type="range" id="volume" min="0" max="100" step="5" />
-        </label>
+      <!-- ================= Breaks ================= -->
+      <section data-panel="breaks" hidden>
+        <div class="card">
+          <h2>Break reminder</h2>
+          <label>Remind me every <span class="hint" id="breakMinsHint"></span>
+            <input type="range" id="breakMins" min="0" max="240" step="5" />
+          </label>
+          <label>Snooze length (minutes) <input type="number" id="breakSnooze" min="1" max="60" /></label>
+          <label class="row"><input type="checkbox" id="showCountdown" /> Show a countdown above the pet</label>
+          <label class="row"><input type="checkbox" id="toasts" /> Windows notification when the pet is hidden or quiet</label>
+        </div>
+        <div class="card">
+          <h2>Work / break sessions</h2>
+          <label class="row"><input type="checkbox" id="breakCycles" /> Time the break too, then start the next work block</label>
+          <label>Break length (minutes) <input type="number" id="breakDuration" min="1" max="60" /></label>
+          <p class="hint">Click the pet to end a break early. Right-click it to snooze.</p>
+        </div>
       </section>
 
-      <p class="foot">Hotkey <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>P</kbd> hides and shows the pet.</p>
+      <!-- ================= Controls ================= -->
+      <section data-panel="controls" hidden>
+        <div class="card">
+          <h2>Global shortcuts</h2>
+          <p class="hint">Click a field and press the combination. Needs at least one of Ctrl, Alt, Shift or Win. Leave empty to unbind.</p>
+          <label>Hide / show <input type="text" id="sc_toggle" class="shortcut" readonly /></label>
+          <label>Feed <input type="text" id="sc_feed" class="shortcut" readonly /></label>
+          <label>Throw toy <input type="text" id="sc_play" class="shortcut" readonly /></label>
+          <label>Open settings <input type="text" id="sc_settings" class="shortcut" readonly /></label>
+          <button type="button" id="resetShortcuts">Reset to defaults</button>
+        </div>
+        <div class="card">
+          <h2>Speech bubbles</h2>
+          <label>Text size <span class="hint" id="speechSizeHint"></span>
+            <input type="range" id="speechSize" min="12" max="24" step="1" />
+          </label>
+          <label>How long they stay <span class="hint" id="speechDurationHint"></span>
+            <input type="range" id="speechDuration" min="50" max="300" step="10" />
+          </label>
+        </div>
+        <div class="card">
+          <h2>In-game keys</h2>
+          <p class="hint">Obstacle jump: <kbd>Space</kbd> or click. Hide &amp; seek: <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>. <kbd>Esc</kbd> ends a game. Pet menu: <kbd>↑</kbd> <kbd>↓</kbd> <kbd>Enter</kbd> <kbd>Esc</kbd>.</p>
+        </div>
+      </section>
+
+      <!-- ================= Dashboard ================= -->
+      <section data-panel="dashboard" hidden>
+        <div class="card">
+          <h2>Pet history</h2>
+          <label>Pet <select id="dashPet"></select></label>
+          <div id="dashSummary" class="summary"></div>
+          <h3>Milestones</h3>
+          <ul id="dashMilestones" class="list"></ul>
+          <h3>Journal</h3>
+          <ul id="dashJournal" class="list journal"></ul>
+        </div>
+      </section>
+
+      <!-- ================= Backup ================= -->
+      <section data-panel="backup" hidden>
+        <div class="card">
+          <h2>Backup &amp; restore</h2>
+          <p class="hint">Everything: settings, custom pets, names, colours, progress and journal.</p>
+          <div class="pair">
+            <button type="button" id="exportBackup">Export to file…</button>
+            <button type="button" id="importBackup">Import from file…</button>
+          </div>
+          <p class="hint" id="backupStatus"></p>
+        </div>
+        <div class="card danger">
+          <h2>Reset</h2>
+          <button type="button" id="resetAll">Reset all settings and progress</button>
+        </div>
+      </section>
     </main>
     <script type="module" src="settings.js"></script>
   </body>

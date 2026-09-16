@@ -1,0 +1,106 @@
+/* The playfield sits behind the real pet; boxes and controls sit in front. */
+.pet-games-active > #pet { z-index: 1000; }
+.pet-games-active > #shadow,
+.pet-games-active > #buddy,
+.pet-games-active > #hearts { visibility: hidden; }
+.pet-games-active > #pet > .bubble { visibility: hidden; }
+
+.pet-game { position: absolute; inset: 0; pointer-events: none; }
+.pet-game-panel {
+  position: absolute;
+  z-index: 1003;
+  padding: 14px 16px;
+  border: 1px solid #d6cfc1;
+  border-radius: 18px;
+  color: #302d26;
+  background: #fffdf7;
+  box-shadow: 0 8px 28px #201b2526;
+  pointer-events: auto;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.pet-game-title { font-size: 17px; font-weight: 700; margin: 0 0 4px; }
+.pet-game-help { margin: 0 0 6px; color: #635e53; }
+.pet-game-status { font-weight: 600; min-height: 19px; margin: 0 0 10px; }
+.pet-game-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.pet-game button {
+  font: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.pet-game-controls button {
+  padding: 7px 12px;
+  border: 1px solid #cbc4b7;
+  border-radius: 10px;
+  color: inherit;
+  background: #f6f2e9;
+}
+.pet-game-controls .pet-game-jump { background: #347554; border-color: #347554; color: #fff; font-weight: 650; }
+.pet-game button:focus-visible,
+.pet-game-arena:focus-visible { outline: 3px solid #2166b0; outline-offset: 3px; }
+.pet-game-controls button:hover { filter: brightness(0.95); }
+.pet-game-arena {
+  position: absolute;
+  z-index: 999;
+  border: 1px solid #c1cdbbaa;
+  border-radius: 22px;
+  background: linear-gradient(180deg, #f4f7eddb, #e0ead5f5);
+  box-shadow: 0 8px 30px #201b251f;
+  pointer-events: auto;
+  overflow: hidden;
+}
+.pet-game-arena-jump { cursor: pointer; }
+.pet-game-floor { position: absolute; left: 12px; right: 12px; bottom: 17px; height: 3px; border-radius: 3px; background: #729269; }
+.pet-game-obstacle {
+  position: absolute;
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #89582f;
+  border-radius: 7px 7px 3px 3px;
+  background: #c99557;
+  font-size: 23px;
+  line-height: 1;
+  pointer-events: none;
+}
+.pet-game-box {
+  position: absolute;
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid #a8763a;
+  border-radius: 12px;
+  background: repeating-linear-gradient(90deg, #d7ad70 0, #d7ad70 15px, #deb981 15px, #deb981 30px);
+  color: #442e18;
+  font-size: 27px !important;
+  font-weight: 750 !important;
+  box-shadow: 0 5px 0 #75552b26;
+  pointer-events: auto;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+.pet-game-box:disabled { cursor: default; opacity: 1; }
+.pet-game-box:not(:disabled):hover { border-color: #347554; }
+.pet-game-box-open {
+  align-items: flex-start;
+  padding-top: 3px;
+  border-style: dashed;
+  background: transparent;
+  font-size: 12px !important;
+  box-shadow: none;
+}
+.pet-game-box-correct { border-color: #347554; color: #235338; }
+.pet-game-box-wrong { border-color: #af3939; }
+
+@media (prefers-color-scheme: dark) {
+  .pet-game-panel { background: #282b29; color: #f3f3eb; border-color: #62685d; }
+  .pet-game-help { color: #c6ccc1; }
+  .pet-game-controls button { background: #3e443d; border-color: #697161; }
+  .pet-game-arena { background: linear-gradient(180deg, #303b32ed, #384832f5); border-color: #687a60; }
+  .pet-game-box-open { color: #f3f3eb; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pet-game-box { transition: none; }
+}

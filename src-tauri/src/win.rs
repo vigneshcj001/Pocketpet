@@ -9,15 +9,18 @@ use windows::Win32::Foundation::{BOOL, HWND, LPARAM, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{
     DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS,
 };
+use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
+use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN,
     MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_VIRTUALDESK, MOUSEINPUT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowLongW,
+    EnumWindows, GetAncestor, GetClassNameW, GetCursorPos, GetDesktopWindow, GetForegroundWindow,
+    GetShellWindow, GetSystemMetrics, GetWindowLongW, GetWindowRect,
     GetWindowTextLengthW, GetWindowTextW, IsIconic, IsWindowVisible, IsZoomed, PostMessageW,
     SetCursorPos, GWL_EXSTYLE, GWL_STYLE, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
-    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, WM_SYSCOMMAND, WS_CHILD, WS_EX_TOOLWINDOW,
+    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, WM_SYSCOMMAND, WS_CAPTION, WS_CHILD, WS_EX_TOOLWINDOW, GA_ROOT,
 };
 
 /// Rectangle in physical (device) pixels: left/top/width/height.
@@ -190,6 +193,59 @@ pub fn raw_foreground() -> isize {
     unsafe { GetForegroundWindow() }.0 as isize
 }
 
+pub fn root_window(raw: isize) -> isize {
+    if raw == 0 { return 0; }
+    unsafe { GetAncestor(HWND(raw as *mut c_void), GA_ROOT) }.0 as isize
+}
+
+/// Borderless fullscreen applications cover a monitor. A normal maximized
+/// application covers only its work area and must not trigger focus mode.
+fn fullscreen_geometry(frame: Rect, monitor: Rect, work: Rect, maximized: bool, captioned: bool) -> bool {
+    if frame.is_empty() || monitor.is_empty() || (maximized && captioned) {
+        return false;
+    }
+    let covers = |outer: Rect, inner: Rect| {
+        outer.x <= inner.x + 1 && outer.y <= inner.y + 1
+            && i64::from(outer.x) + i64::from(outer.w) >= i64::from(inner.x) + i64::from(inner.w) - 1
+            && i64::from(outer.y) + i64::from(outer.h) >= i64::from(inner.y) + i64::from(inner.h) - 1
+    };
+    if work != monitor && frame == work { return false; }
+    covers(frame, monitor)
+}
+
+pub fn is_fullscreen(raw: isize) -> bool {
+    if raw == 0 { return false; }
+    let hwnd = HWND(root_window(raw) as *mut c_void);
+    unsafe {
+        if hwnd == GetDesktopWindow() || hwnd == GetShellWindow()
+            || !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() || is_cloaked(hwnd) {
+            return false;
+        }
+        let mut class = [0u16; 128];
+        let length = GetClassNameW(hwnd, &mut class);
+        let class = String::from_utf16_lossy(&class[..length.max(0) as usize]);
+        if matches!(class.as_str(), "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd") {
+            return false;
+        }
+        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+        if !GetMonitorInfoW(monitor, &mut info).as_bool() { return false; }
+        let frame = frame_bounds(hwnd).or_else(|| {
+            let mut rect = RECT::default();
+            GetWindowRect(hwnd, &mut rect).ok().map(|_| Rect::from_win(rect))
+        });
+        let Some(frame) = frame else { return false; };
+        fullscreen_geometry(frame, Rect::from_win(info.rcMonitor), Rect::from_win(info.rcWork),
+            IsZoomed(hwnd).as_bool(), GetWindowLongW(hwnd, GWL_STYLE) as u32 & WS_CAPTION.0 == WS_CAPTION.0)
+    }
+}
+
+pub fn on_battery() -> bool {
+    let mut status = SYSTEM_POWER_STATUS::default();
+    unsafe { GetSystemPowerStatus(&mut status) }.is_ok()
+        && status.ACLineStatus == 0 && status.BatteryFlag != 128 && status.BatteryFlag != 255
+}
+
 /// Look a window up by HWND, with the same filtering as `list_windows` so a
 /// stale or hidden handle comes back as `None` rather than a ghost.
 pub fn window_by_hwnd(hwnd: isize) -> Option<WindowInfo> {
@@ -251,5 +307,20 @@ pub fn real_click_at(x: i32, y: i32, restore: bool) -> bool {
             let _ = SetCursorPos(ox, oy);
         }
         sent == inputs.len() as u32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn focus_distinguishes_fullscreen_from_maximized_work_area() {
+        let monitor = Rect { x: -1920, y: 0, w: 1920, h: 1080 };
+        let work = Rect { h: 1040, ..monitor };
+        assert!(fullscreen_geometry(monitor, monitor, work, false, false));
+        assert!(!fullscreen_geometry(work, monitor, work, true, true));
+        assert!(!fullscreen_geometry(monitor, monitor, monitor, true, true));
+        assert!(!fullscreen_geometry(Rect { w: 1200, ..monitor }, monitor, work, false, false));
+        assert!(!fullscreen_geometry(Rect::default(), monitor, work, false, false));
     }
 }

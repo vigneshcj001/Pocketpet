@@ -60,6 +60,24 @@ struct ScreenInfo {
     scale: f64,
     /// Each monitor's bounds, physical pixels.
     monitors: Vec<Rect>,
+    /// Same order as `monitors`: the part not covered by the taskbar.
+    work_areas: Vec<Rect>,
+}
+
+/// What the frontend needs to decide on focus mode and low-power behaviour.
+#[derive(Debug, Clone, Serialize)]
+struct Environment {
+    /// The foreground window is a borderless fullscreen app (game, slideshow).
+    fullscreen: bool,
+    on_battery: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct Shortcuts {
+    toggle: String,
+    feed: String,
+    play: String,
+    settings: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -86,10 +104,12 @@ struct WindowTarget {
 
 #[tauri::command]
 fn get_screen(window: WebviewWindow) -> ScreenInfo {
+    let layout = extras::monitor_layout();
     ScreenInfo {
         virtual_screen: win::virtual_screen(),
         scale: window.scale_factor().unwrap_or(1.0),
-        monitors: extras::monitors(),
+        monitors: layout.iter().map(|(m, _)| *m).collect(),
+        work_areas: layout.iter().map(|(_, w)| *w).collect(),
     }
 }
 
@@ -219,6 +239,53 @@ async fn pick_image() -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
+fn get_environment(window: WebviewWindow) -> Environment {
+    let ours = window.hwnd().map(|h| h.0 as isize).unwrap_or(0);
+    let fg = win::raw_foreground();
+    let fullscreen = fg != 0 && win::root_window(fg) != win::root_window(ours) && win::is_fullscreen(fg);
+    Environment { fullscreen, on_battery: win::on_battery() }
+}
+
+/// Re-register the global hotkeys from the user's settings. Returns the
+/// names of actions whose combination could not be parsed or registered.
+#[tauri::command]
+fn set_hotkeys(shortcuts: Shortcuts) -> Vec<String> {
+    use startup::{parse_combo, HotkeyAction};
+    let mut bindings = Vec::new();
+    let mut bad = Vec::new();
+    for (name, text, action) in [
+        ("toggle", &shortcuts.toggle, HotkeyAction::Toggle),
+        ("feed", &shortcuts.feed, HotkeyAction::Feed),
+        ("play", &shortcuts.play, HotkeyAction::Play),
+        ("settings", &shortcuts.settings, HotkeyAction::Settings),
+    ] {
+        if text.trim().is_empty() {
+            continue; // unbound on purpose
+        }
+        match parse_combo(text) {
+            Some(combo) => bindings.push((action, combo)),
+            None => bad.push(name.to_string()),
+        }
+    }
+    startup::set_hotkeys(bindings);
+    bad
+}
+
+#[tauri::command]
+async fn save_backup(json: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || extras::save_backup(&json))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn load_backup() -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(extras::load_backup)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 fn notify(title: String, body: String, app: AppHandle) {
     let _ = app.notification().builder().title(title).body(body).show();
 }
@@ -288,6 +355,27 @@ fn toggle_hidden(app: &AppHandle) {
         .map(|f| f.hidden.load(Ordering::Relaxed))
         .unwrap_or(false);
     apply_hidden(app, !hidden);
+}
+
+/// Global hotkey pressed. Everything except hide/show is a frontend concern,
+/// so it goes out as the same event the tray menu uses.
+fn on_hotkey(app: &AppHandle, action: startup::HotkeyAction) {
+    use startup::HotkeyAction::*;
+    match action {
+        Toggle => toggle_hidden(app),
+        Feed => {
+            let _ = app.emit("pet://menu", serde_json::json!({ "id": "act:feed" }));
+        }
+        Play => {
+            let _ = app.emit("pet://menu", serde_json::json!({ "id": "act:ball" }));
+        }
+        Settings => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = open_settings(app).await;
+            });
+        }
+    }
 }
 
 // --- overlay plumbing --------------------------------------------------------
@@ -457,7 +545,9 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayToggles> {
         MenuItem::with_id(app, "act:close", "Pet: close active window", true, None::<&str>)?;
     let say = MenuItem::with_id(app, "act:say", "Pet: say something", true, None::<&str>)?;
     let feed = MenuItem::with_id(app, "act:feed", "Pet: feed", true, None::<&str>)?;
-    let ball = MenuItem::with_id(app, "act:ball", "Pet: throw ball", true, None::<&str>)?;
+    let ball = MenuItem::with_id(app, "act:ball", "Pet: throw toy", true, None::<&str>)?;
+    let game_jump = MenuItem::with_id(app, "act:game:jump", "Pet: obstacle jump", true, None::<&str>)?;
+    let game_hide = MenuItem::with_id(app, "act:game:hide", "Pet: hide & seek", true, None::<&str>)?;
     let settings_item = MenuItem::with_id(app, "app:settings", "Settings...", true, None::<&str>)?;
     let autostart = CheckMenuItem::with_id(
         app,
@@ -492,6 +582,8 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayToggles> {
             &say,
             &feed,
             &ball,
+            &game_jump,
+            &game_hide,
             &minimize_active,
             &close_active,
             &PredefinedMenuItem::separator(app)?,
@@ -539,6 +631,10 @@ pub fn run() {
             pick_image,
             notify,
             open_settings,
+            get_environment,
+            set_hotkeys,
+            save_backup,
+            load_backup,
             quit_app,
         ])
         .setup(|app| {
@@ -549,7 +645,11 @@ pub fn run() {
             let toggles = build_tray(&handle)?;
             app.manage(toggles);
             spawn_cursor_thread(handle.clone());
-            startup::spawn_hotkey_thread(handle, toggle_hidden);
+            // Default binding until the frontend loads the user's own set.
+            let default = startup::parse_combo(startup::HOTKEY_LABEL)
+                .map(|c| vec![(startup::HotkeyAction::Toggle, c)])
+                .unwrap_or_default();
+            startup::spawn_hotkey_thread(handle, default, on_hotkey);
             Ok(())
         })
         .on_menu_event(|app, event| {

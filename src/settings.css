@@ -6,6 +6,7 @@
   --muted: #7a7386;
   --line: #e6e2ee;
   --accent: #e8963c;
+  --danger: #c94b3a;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -27,12 +28,40 @@ body {
   font: 13.5px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   user-select: none;
 }
-main {
-  padding: 16px 18px 20px;
+header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg);
+  padding: 12px 18px 0;
+  border-bottom: 1px solid var(--line);
 }
 h1 {
   font-size: 18px;
-  margin: 0 0 10px;
+  margin: 0 0 8px;
+}
+nav[role="tablist"] {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+}
+nav[role="tablist"] button {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  padding: 7px 10px;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+nav[role="tablist"] button[aria-selected="true"] {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+main {
+  padding: 14px 18px 20px;
 }
 h2 {
   font-size: 12px;
@@ -41,12 +70,19 @@ h2 {
   color: var(--muted);
   margin: 0 0 8px;
 }
-section {
+h3 {
+  font-size: 12.5px;
+  margin: 12px 0 6px;
+}
+.card {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 12px 14px;
   margin-bottom: 12px;
+}
+.card.danger {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--line));
 }
 label {
   display: flex;
@@ -59,28 +95,143 @@ label.row {
   align-items: center;
   gap: 8px;
 }
+.pair {
+  display: flex;
+  gap: 10px;
+}
+.pair > * {
+  flex: 1;
+}
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 12px;
+}
 select,
-input[type="range"] {
+input[type="range"],
+input[type="text"],
+input[type="number"],
+input[type="time"] {
   width: 100%;
   font: inherit;
   accent-color: var(--accent);
 }
-select {
+select,
+input[type="text"],
+input[type="number"],
+input[type="time"] {
   padding: 5px 8px;
   border-radius: 8px;
   border: 1px solid var(--line);
   background: var(--bg);
   color: var(--ink);
 }
+input.shortcut:focus {
+  outline: 2px solid var(--accent);
+}
+button {
+  font: inherit;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  cursor: pointer;
+}
+button:hover {
+  border-color: var(--accent);
+}
+.danger button {
+  color: var(--danger);
+}
 .hint {
   color: var(--muted);
   font-size: 12px;
 }
-.foot {
+.list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+.list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+}
+.list li:first-child {
+  border-top: 0;
+}
+.list img {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  border-radius: 6px;
+  background: var(--bg);
+}
+.list .grow {
+  flex: 1;
+  min-width: 0;
+}
+.list input[type="text"] {
+  width: 100%;
+}
+.journal li {
+  font-size: 12.5px;
+  gap: 8px;
+}
+.journal time {
   color: var(--muted);
-  font-size: 12px;
+  white-space: nowrap;
+}
+.summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 6px;
+}
+.summary .stat {
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 8px;
   text-align: center;
-  margin: 4px 0 0;
+}
+.summary .stat b {
+  display: block;
+  font-size: 18px;
+}
+.summary .stat span {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+  flex: 1;
+}
+.bar > div {
+  height: 100%;
+  background: var(--accent);
+}
+.locked {
+  opacity: 0.55;
+}
+.preview {
+  position: relative;
+  margin-top: 8px;
+  aspect-ratio: 16 / 9;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.preview-box {
+  position: absolute;
+  background: color-mix(in srgb, var(--danger) 30%, transparent);
+  border: 1px solid var(--danger);
+  border-radius: 4px;
 }
 kbd {
   font: inherit;

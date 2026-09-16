@@ -43,7 +43,27 @@ Built with Tauri v2 (Rust + WebView2). No Electron, no npm, no bundler.
 - **Size, speed, run-at-startup, Ctrl+Alt+P to hide/show,** a settings window,
   and a keyboard-navigable, theme-aware right-click menu.
 - **Multi-monitor aware.** Stands on the bottom of *its* screen, not the
-  tallest one.
+  tallest one. Pick a monitor, set an edge margin, keep it to the bottom
+  strip, or mark a keep-out area it must never enter.
+- **Focus mode.** Hides, or goes quiet (no talking, sounds, nags, wandering),
+  when a fullscreen app is in front or during your quiet hours.
+- **Breaks, properly.** Any interval, snooze (right-click the pet), a
+  countdown pill above it, and optional timed work/break sessions.
+- **Make it yours.** Name, colour, personality (playful / calm / sleepy) and
+  unlockable accessories per pet. Up to 12 custom-image pets, auto-cropped
+  and shrunk.
+- **Companion that counts.** Feed, pat and cuddle the second pet too; it has
+  its own hunger and history and chases the toy alongside.
+- **Toys and games.** Ball, yarn or frisbee for fetch; obstacle-jump and
+  hide-and-seek mini-games with a win record.
+- **Dashboard.** Per-pet counters, milestones with progress, a journal, and
+  accessories that unlock as you go.
+- **Shortcuts you choose.** Hide/show, feed, throw and settings hotkeys are
+  all rebindable; speech-bubble size and duration are adjustable.
+- **Battery-friendly.** Drops to 15 fps and scans windows less when hidden,
+  asleep, or in low-power mode.
+- **Backup & restore.** Export everything to a JSON file and import it on
+  another machine.
 
 ## How the tricky parts work
 

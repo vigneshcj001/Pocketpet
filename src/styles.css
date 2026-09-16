@@ -528,3 +528,88 @@ body {
   0%, 100% { transform: rotate(0deg); }
   30%, 75% { transform: rotate(18deg) translateY(2px); }
 }
+
+/* --- appearance: colour, accessory, personality ---------------------------- */
+
+.sprite {
+  filter: hue-rotate(var(--hue, 0deg));
+}
+.accessory {
+  position: absolute;
+  top: calc(var(--pet-size) * -0.12);
+  left: 50%;
+  translate: -50% 0;
+  font-size: calc(var(--pet-size) * 0.3);
+  line-height: 1;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3));
+  transform: scaleX(var(--facing, 1));
+}
+.pet[data-personality="sleepy"] .p-eye {
+  animation-duration: 3.2s;
+}
+
+/* --- hunger bar under the pet ---------------------------------------------- */
+
+.hunger {
+  position: absolute;
+  left: 15%;
+  bottom: -7px;
+  width: 70%;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  pointer-events: none;
+}
+.hunger-fill {
+  height: 100%;
+  background: #6cc46b;
+  transition: width 0.4s;
+}
+.hunger[data-level="hungry"] .hunger-fill {
+  background: #f0b437;
+}
+.hunger[data-level="starving"] .hunger-fill {
+  background: #e5533c;
+}
+
+/* --- break countdown pill -------------------------------------------------- */
+
+.countdown {
+  position: absolute;
+  top: 0;
+  left: 0;
+  translate: -50% -100%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(28, 24, 36, 0.82);
+  color: #f4f1ef;
+  font: 11px "Segoe UI Variable Small", "Segoe UI", system-ui, sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+  will-change: transform;
+}
+
+/* --- focus mode: quiet ----------------------------------------------------- */
+
+#stage.quiet .pet {
+  opacity: 0.55;
+}
+#stage.quiet .bubble,
+#stage.quiet .countdown {
+  display: none !important;
+}
+
+/* --- companion is interactive now ------------------------------------------ */
+
+.buddy {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/* --- speech size ----------------------------------------------------------- */
+
+.bubble {
+  font-size: var(--speech-size, 14px);
+}

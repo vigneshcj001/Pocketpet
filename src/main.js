@@ -1,4 +1,22 @@
 import { getPet as getBuiltinPet, PETS, DEFAULT_PET } from "./pets/index.js";
+import {
+  readSettings,
+  writeSettings,
+  recordActivity,
+  profileFor,
+  milestonesFor,
+  accessoryUnlocked,
+} from "./preferences.js";
+import {
+  focusActive,
+  hungerAfter,
+  nearestMonitor,
+  insetBounds,
+  exclusionRect,
+  constrainPoint,
+  formatCountdown,
+} from "./behavior.js";
+import { createGames, TOYS } from "./games.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -16,15 +34,21 @@ const ARRIVE_RADIUS = 110; // stop chasing once this close to the cursor
 const RUN_RADIUS = 420;
 const HOP_REACH = 150; // highest ledge the pet will hop onto
 const SETTLE_AFTER = 2_600; // cursor idle before the pet stops chasing and falls
-const HUNGER_PER_MIN = 100 / 150; // empty to starving in ~2.5 h at 100% rate
 const HUNGRY_AT = 70; // starts asking for food
 const STARVING_AT = 90; // slows down
 
-/** Sleep sooner late at night. */
-const SLEEP_AFTER = () => (isLateNight() ? 9_000 : 25_000);
+/** Personality and time of day decide how quickly the pet dozes off. */
+const SLEEP_AFTER = () => {
+  const p = personality();
+  if (p === "sleepy") return 9_000;
+  if (p === "playful") return 40_000;
+  return isLateNight() ? 9_000 : 25_000;
+};
 
 const speedMul = () =>
-  (SPEEDS[settings.speed] ?? 1) * (settings.hunger >= STARVING_AT ? 0.6 : 1);
+  (SPEEDS[settings.speed] ?? 1) *
+  (settings.hunger >= STARVING_AT ? 0.6 : 1) *
+  (personality() === "playful" ? 1.12 : personality() === "sleepy" ? 0.8 : 1);
 
 // --- dom ---------------------------------------------------------------------
 
@@ -32,6 +56,7 @@ const el = {
   stage: document.getElementById("stage"),
   pet: document.getElementById("pet"),
   sprite: document.getElementById("sprite"),
+  accessory: document.getElementById("accessory"),
   bubble: document.getElementById("bubble"),
   bubbleText: document.getElementById("bubble-text"),
   shadow: document.getElementById("shadow"),
@@ -40,60 +65,69 @@ const el = {
   ball: document.getElementById("ball"),
   buddy: document.getElementById("buddy"),
   buddySprite: document.getElementById("buddy-sprite"),
+  buddyAccessory: document.getElementById("buddy-accessory"),
   hearts: document.getElementById("hearts"),
+  hunger: document.getElementById("hunger"),
+  hungerFill: document.getElementById("hunger-fill"),
+  countdown: document.getElementById("countdown"),
 };
 
 // --- settings ----------------------------------------------------------------
+// Validated by preferences.js. Writes are patches, so a hunger tick can never
+// clobber an edit the settings window made a moment earlier.
 
-const DEFAULTS = {
-  pet: DEFAULT_PET,
-  companion: "",
-  follow: true,
-  mischief: false,
-  realClick: false,
-  size: "medium",
-  speed: "normal",
-  breakMins: 0,
-  toasts: true,
-  sound: true,
-  volume: 60, // 0..100
-  chatter: 50, // 0..100, how talkative
-  hungerRate: 100, // percent of HUNGER_PER_MIN
-  hunger: 20,
-  hungerAt: Date.now(), // when `hunger` was last brought up to date
-  customImage: null, // data: URL for the "custom" pet
-  stats: { meals: 0, pats: 0, pets: 0, fetches: 0, firstRun: Date.now() },
-};
-
-function loadSettings() {
-  try {
-    const stored = JSON.parse(localStorage.getItem("pocketpet") ?? "{}");
-    return { ...DEFAULTS, ...stored, stats: { ...DEFAULTS.stats, ...(stored.stats ?? {}) } };
-  } catch {
-    return structuredClone(DEFAULTS);
-  }
-}
+let settings = readSettings();
+let savedSettings = structuredClone(settings);
 
 function saveSettings() {
   try {
-    localStorage.setItem("pocketpet", JSON.stringify(settings));
-  } catch {
-    /* private mode or storage disabled - settings just won't persist */
+    const patch = Object.fromEntries(
+      Object.entries(settings).filter(
+        ([key, value]) => JSON.stringify(value) !== JSON.stringify(savedSettings[key]),
+      ),
+    );
+    if (Object.keys(patch).length === 0) return;
+    settings = writeSettings(patch);
+    savedSettings = structuredClone(settings);
+  } catch (err) {
+    console.error("Could not save PocketPet settings", err);
   }
 }
 
-let settings = loadSettings();
+const personality = (id = settings.pet) => settings.personalities[id] ?? "calm";
+const petName = (id = pet.id) => settings.petNames[id] || getPet(id).name;
+
+/** Bump a per-pet counter (and the global one) and refresh unlocks. */
+function record(kind, amount = 1, id = pet.id) {
+  saveSettings();
+  try {
+    settings = recordActivity(id, kind, amount);
+    savedSettings = structuredClone(settings);
+    applyAppearance();
+  } catch (error) {
+    console.error("Could not save pet progress", error);
+  }
+}
 
 /** The settings window edited localStorage; pick up what changed. */
 function reloadSettings(patch) {
-  const fresh = loadSettings();
+  const fresh = readSettings();
   const before = settings;
   settings = fresh;
+  savedSettings = structuredClone(fresh);
   const changed = (k) => JSON.stringify(before[k]) !== JSON.stringify(fresh[k]);
+  if (games.isActive()) games.cancel();
   if (changed("size")) setSize(fresh.size, true);
-  if (changed("pet")) mountPet(fresh.pet);
-  if (changed("companion")) mountBuddy(fresh.companion);
-  if (changed("breakMins")) scheduleBreak();
+  if (changed("pet") || changed("customPets")) mountPet(fresh.pet, true);
+  if (changed("companion") || changed("customPets")) mountBuddy(fresh.companion);
+  if (changed("breakMins") || changed("breakCycles") || changed("breakDuration")) {
+    endBreak(false);
+    scheduleBreak();
+  }
+  if (changed("shortcuts")) configureShortcuts();
+  if (changed("toy")) applyToy();
+  applyAppearance();
+  updateFocus();
   if (patch && "sound" in patch && fresh.sound) playChirp();
   syncTray();
 }
@@ -118,16 +152,17 @@ const GENERIC_LINES = {
   fetch: ["Got it!", "Ball!"],
 };
 
-/** Built-in pets plus the user's own picture, if they picked one. */
+/** Built-in pets plus any picture the user turned into one. */
 function getPet(id) {
-  if (id === "custom" && settings.customImage) {
+  const custom = settings.customPets.find((p) => p.id === id);
+  if (custom) {
     return {
-      id: "custom",
-      name: "Custom",
+      id: custom.id,
+      name: custom.name,
       emoji: "🖼️",
       food: "🍪",
       paw: { x: 0.7, y: 0.6 },
-      svg: `<img class="custom-img" src="${settings.customImage}" alt="" draggable="false" />`,
+      svg: `<img class="custom-img" src="${custom.image}" alt="" draggable="false" />`,
       lines: GENERIC_LINES,
     };
   }
@@ -140,7 +175,7 @@ const line = (key) => pick(pet.lines[key] ?? GENERIC_LINES[key] ?? ["..."]);
 // --- geometry ----------------------------------------------------------------
 
 /** Overlay geometry, filled in by `syncScreen`. */
-let screen = { virtual: { x: 0, y: 0, w: 1920, h: 1080 }, scale: 1, monitors: [] };
+let screen = { virtual: { x: 0, y: 0, w: 1920, h: 1080 }, scale: 1, monitors: [], work_areas: [] };
 
 const state = {
   x: 200, // top-left of the pet box, CSS px inside the overlay
@@ -149,7 +184,7 @@ const state = {
   vy: 0,
   facing: 1,
   anim: "idle",
-  /** "free" while the pet runs its own life; "mission" / "break" while busy. */
+  /** "free" while the pet runs its own life; "mission" / "break" / "game" while busy. */
   mode: "free",
   grounded: false,
   /**
@@ -162,15 +197,20 @@ const state = {
   antic: null,
   /** Overlay hidden via tray/hotkey; timers keep running but nothing acts. */
   hidden: false,
+  /** Hidden by focus mode specifically, so we know to bring it back. */
+  focusHidden: false,
+  /** Focus mode "quiet": no chatter, antics, sounds or nags. */
+  quiet: false,
   autostart: false,
   /** "Feed"/"Throw" was chosen; the next click decides where it goes. */
-  placing: null, // null | "food" | "ball"
-  food: null, // { x, y } top-left, CSS px
+  placing: null, // null | "food" | "buddyFood" | "ball"
+  food: null, // { x, y, forBuddy } top-left, CSS px
   cursor: { x: 0, y: 0 }, // CSS px inside the overlay
   lastCursorMove: 0,
   windows: [],
   dragging: false,
   hovering: false,
+  env: { fullscreen: false, onBattery: false },
 };
 
 const toCssX = (px) => (px - screen.virtual.x) / screen.scale;
@@ -195,20 +235,38 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const now = () => performance.now();
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** The monitor under an overlay x (and optionally y), as a CSS rect. */
+const monitorsCss = () => screen.monitors.map(cssRect);
+
+/** The monitor under an overlay point, or the nearest one. */
 function monitorAt(x, y) {
-  const mons = screen.monitors.map(cssRect);
-  const hit =
-    mons.find((m) => x >= m.x && x < m.x + m.w && (y == null || (y >= m.y && y < m.y + m.h))) ??
-    mons.find((m) => x >= m.x && x < m.x + m.w);
-  return hit ?? { x: 0, y: 0, w: overlayW(), h: overlayH() };
+  const mons = monitorsCss();
+  if (!mons.length) return { x: 0, y: 0, w: overlayW(), h: overlayH() };
+  return nearestMonitor(mons, { x, y: y ?? 0 });
 }
 
-/** Bottom edge of the screen the pet is on, so it never sinks below a shorter monitor. */
-const floorAt = (x, y) => {
+/**
+ * Where the pet is allowed to be: the chosen monitor (or the one it is on)
+ * inset by the roaming margin, optionally only its bottom strip.
+ */
+function roamBounds() {
+  const mons = monitorsCss();
+  let home;
+  if (settings.monitor !== "all" && mons[Number(settings.monitor)]) {
+    home = mons[Number(settings.monitor)];
+  } else {
+    home = monitorAt(footX(), footY());
+  }
+  return insetBounds(home, settings.roamMargin, SIZE, settings.roamBottomOnly);
+}
+
+const avoidRect = (bounds) => exclusionRect(bounds, settings.avoidArea);
+
+/** Bottom edge of the pet's allowed area, so it never sinks below a shorter monitor. */
+function floorAt(x, y) {
+  const b = roamBounds();
   const m = monitorAt(x, y);
-  return m.y + m.h;
-};
+  return Math.min(m.y + m.h, b.y + b.h);
+}
 
 // --- time of day -------------------------------------------------------------
 
@@ -217,7 +275,8 @@ const isLateNight = () => hour() >= 23 || hour() < 5;
 
 function timeGreeting() {
   const h = hour();
-  if (h >= 5 && h < 11) return pick(["Morning! ☀️", "Good morning. Coffee first?", "Up early, are we?"]);
+  const name = petName();
+  if (h >= 5 && h < 11) return pick(["Morning! ☀️", "Good morning. Coffee first?", `${name} reporting for duty.`]);
   if (h >= 11 && h < 14) return pick(["Lunch soon?", "Midday already."]);
   if (h >= 18 && h < 23) return pick(["Evening. 🌇", "Winding down?"]);
   if (isLateNight()) return pick(["It's late. Go to bed, human. 🌙", "Sleep is a feature, you know."]);
@@ -230,7 +289,7 @@ function timeGreeting() {
 let audioCtx = null;
 
 function audio() {
-  if (!settings.sound) return null;
+  if (!settings.sound || state.quiet) return null;
   try {
     audioCtx ??= new AudioContext();
     if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
@@ -278,7 +337,6 @@ function playPurr() {
   const lp = ctx.createBiquadFilter();
   lp.type = "lowpass";
   lp.frequency.value = 180;
-  // amplitude flutter, the "rrr" in purr
   const lfo = ctx.createOscillator();
   lfo.frequency.value = 24;
   const lfoGain = ctx.createGain();
@@ -347,7 +405,7 @@ function syncTray() {
   invoke("sync_tray", {
     size: settings.size,
     speed: settings.speed,
-    breakMins: settings.breakMins,
+    breakMins: [0, 25, 45, 60].includes(settings.breakMins) ? settings.breakMins : 0,
   }).catch(() => {});
 }
 
@@ -380,15 +438,37 @@ function setBreak(mins) {
   scheduleBreak();
 }
 
-// --- sprite ------------------------------------------------------------------
+// --- sprite & appearance -----------------------------------------------------
 
-function mountPet(id) {
+const ACCESSORY_GLYPH = { none: "", bow: "🎀", star: "⭐", crown: "👑" };
+
+function mountPet(id, quiet) {
   pet = getPet(id);
   settings.pet = pet.id;
   saveSettings();
   el.sprite.innerHTML = pet.svg;
-  say(timeGreeting() ?? line("greet"));
-  playChirp();
+  applyAppearance();
+  if (!quiet) {
+    say(timeGreeting() ?? line("greet"));
+    playChirp();
+  }
+}
+
+/** Colour, accessory and speech-bubble sizing for both animals. */
+function applyAppearance() {
+  const dress = (root, glyphEl, id) => {
+    root.style.setProperty("--hue", `${settings.colors[id] ?? 0}deg`);
+    const acc = settings.accessories[id] ?? "none";
+    const allowed = accessoryUnlocked(settings, id, acc) ? acc : "none";
+    glyphEl.textContent = ACCESSORY_GLYPH[allowed] ?? "";
+    glyphEl.hidden = allowed === "none";
+    root.dataset.personality = settings.personalities[id] ?? "calm";
+  };
+  dress(el.pet, el.accessory, pet.id);
+  if (buddy.pet) dress(el.buddy, el.buddyAccessory, buddy.pet.id);
+  document.documentElement.style.setProperty("--speech-size", `${settings.speechSize}px`);
+  el.hunger.hidden = !settings.showHunger;
+  paintHunger();
 }
 
 function setAnim(name) {
@@ -421,7 +501,8 @@ function say(text, holdMs) {
     if (i >= text.length) clearInterval(typeTimer);
   }, 18);
 
-  const hold = holdMs ?? Math.max(1800, text.length * 65);
+  const base = holdMs ?? Math.max(1800, text.length * 65);
+  const hold = holdMs != null && holdMs > 60_000 ? holdMs : base * (settings.speechDuration / 100);
   bubbleTimer = setTimeout(hideBubble, hold);
 }
 
@@ -438,8 +519,8 @@ function hideBubble() {
 
 /**
  * The pet walks on the top edge of real windows, Shimeji-style, and on the
- * bottom of its monitor otherwise. Returns the highest surface at or below the
- * pet's feet.
+ * bottom of its allowed area otherwise. Returns the highest surface at or
+ * below the pet's feet.
  */
 function groundUnder(x, fromY) {
   let best = floorAt(x, fromY);
@@ -466,7 +547,7 @@ function ledgeAbove(x, fromY) {
   return best;
 }
 
-/** Is the pet standing on a window (not the screen floor), and how far to its edge? */
+/** Is the pet standing on a window (not the floor), and how far to its edge? */
 function ledgeInfo() {
   const gy = groundUnder(footX(), footY());
   if (gy >= floorAt(footX(), footY()) - 1) return null;
@@ -488,33 +569,58 @@ async function refreshWindows() {
 }
 
 // --- main loop ---------------------------------------------------------------
+// Runs on requestAnimationFrame normally. In low-power situations (hidden,
+// asleep, on battery with the option on) it drops to ~15 fps on a timer.
 
 let lastFrame = now();
+
+function lowPowerNow() {
+  return (
+    state.hidden ||
+    settings.lowPower ||
+    (state.env.onBattery && settings.lowPower) ||
+    (state.anim === "sleep" && state.mode === "free" && !buddy.pet)
+  );
+}
+
+function scheduleFrame() {
+  if (lowPowerNow()) setTimeout(frame, 66);
+  else requestAnimationFrame(frame);
+}
 
 function frame() {
   const t = now();
   const dt = Math.min(0.05, (t - lastFrame) / 1000);
   lastFrame = t;
 
-  if (state.dragging) {
+  if (state.hidden) {
+    // Nothing to draw; just keep the clock honest.
+    scheduleFrame();
+    return;
+  }
+
+  if (games.isActive()) {
+    games.tick(dt);
+  } else if (state.dragging) {
     setAnim("drag");
   } else if (state.mode === "free") {
     stepFree(dt, t);
   }
 
   applyTransform();
-  if (state.placing === "food") {
+  if (state.placing === "food" || state.placing === "buddyFood") {
     el.food.style.transform = `translate3d(${state.cursor.x - foodSize() / 2}px, ${state.cursor.y - foodSize() / 2}px, 0)`;
   }
   stepBall(dt);
   stepBuddy(dt, t);
+  paintCountdown();
   reportHitRegions();
-  requestAnimationFrame(frame);
+  scheduleFrame();
 }
 
 function stepFree(dt, t) {
   const cursorIdle = t - state.lastCursorMove;
-  const chasing = settings.follow && cursorIdle < SETTLE_AFTER && !state.perched;
+  const chasing = settings.follow && !state.quiet && cursorIdle < SETTLE_AFTER && !state.perched;
 
   const ground = groundUnder(footX(), footY());
   const onGround = footY() >= ground - 1 && state.vy >= 0;
@@ -579,7 +685,7 @@ function stepFree(dt, t) {
     if (!state.grounded && wasFalling) {
       bounce();
       playBoing();
-      if (Math.random() < 0.4) say(line("land"));
+      if (Math.random() < 0.4 && !state.quiet) say(line("land"));
     }
     state.grounded = true;
   } else {
@@ -587,7 +693,13 @@ function stepFree(dt, t) {
     if (state.vy > 60) setAnim("walk");
   }
 
-  state.x = clamp(state.x, -SIZE * 0.25, overlayW() - SIZE * 0.75);
+  // Stay inside the roaming area and out of the protected region.
+  const bounds = roamBounds();
+  const kept = constrainPoint({ x: state.x, y: state.y }, bounds, SIZE, avoidRect(bounds));
+  if (kept.x !== state.x) state.vx = 0;
+  if (kept.y !== state.y && !state.perched) state.vy = 0;
+  state.x = kept.x;
+  state.y = kept.y;
 
   const height = Math.max(0, landing - (state.y + SIZE));
   el.shadow.style.setProperty("--shadow-scale", clamp(1 - height / 500, 0.45, 1));
@@ -616,6 +728,8 @@ function reportHitRegions() {
   const regions = [rectOf(el.pet)];
   if (!el.bubble.hidden) regions.push(rectOf(el.bubble));
   if (menuEl) regions.push(rectOf(menuEl));
+  if (buddy.pet) regions.push(rectOf(el.buddy));
+  for (const r of games.hitRegions()) regions.push({ x: r.x, y: r.y, w: r.width, h: r.height });
 
   const physical = regions
     .filter(Boolean)
@@ -788,6 +902,7 @@ let dragHistory = [];
 
 el.pet.addEventListener("pointerdown", (e) => {
   audio(); // first user gesture unlocks sound
+  if (games.isActive()) return;
   if (state.placing) {
     e.stopPropagation();
     if (e.button === 0) placeAt(footX(), footY());
@@ -848,19 +963,22 @@ el.pet.addEventListener("pointercancel", endDrag);
 let patTimer = null;
 
 el.pet.addEventListener("click", (e) => {
+  if (games.onPetClick()) {
+    e.stopPropagation();
+    return;
+  }
   // A click that followed a real drag isn't a pat.
   const first = dragHistory[0];
   const last = dragHistory[dragHistory.length - 1];
   if (first && last && Math.hypot(last.x - first.x, last.y - first.y) > 6) return;
   if (state.mode === "break") {
-    endBreak();
+    endBreak(true);
     e.stopPropagation();
     return;
   }
   if (state.mode !== "free") return;
   state.antic = null;
-  settings.stats.pats += 1;
-  saveSettings();
+  record("pats");
   setAnim("happy");
   say(line("click"));
   playChirp();
@@ -885,23 +1003,22 @@ el.pet.addEventListener("pointerleave", () => {
 
 function petting() {
   if (!state.hovering || state.dragging || state.mode !== "free" || state.placing) return;
-  settings.stats.pets += 1;
-  saveSettings();
+  record("pets");
   setAnim("happy");
   playPurr();
-  spawnHearts(3);
+  spawnHearts(3, state.x, state.y, SIZE);
   clearTimeout(patTimer);
   patTimer = setTimeout(() => setAnim("idle"), 1500);
   hoverTimer = setTimeout(petting, 2600);
 }
 
-function spawnHearts(n) {
+function spawnHearts(n, x0, y0, size) {
   for (let i = 0; i < n; i++) {
     const h = document.createElement("span");
     h.className = "heart";
     h.textContent = pick(["❤", "💛", "🧡"]);
-    const x = state.x + SIZE * (0.25 + Math.random() * 0.5);
-    const y = state.y + SIZE * 0.2;
+    const x = x0 + size * (0.25 + Math.random() * 0.5);
+    const y = y0 + size * 0.2;
     h.style.transform = `translate3d(${x}px, ${y}px, 0)`;
     h.style.setProperty("--drift", `${(Math.random() - 0.5) * 40}px`);
     h.style.animationDelay = `${i * 140}ms`;
@@ -948,25 +1065,30 @@ function closeMenu() {
 }
 
 function menuItems() {
+  const toy = TOYS[settings.toy] ?? TOYS.ball;
+  const hungerPct = Math.round(settings.hunger);
   return [
     ["Say something", () => say(line("idle"))],
-    [`Feed ${pet.food}   (hunger ${Math.round(settings.hunger)}%)`, () => startPlacing("food")],
-    ["Throw ball ⚽", () => startPlacing("ball")],
+    [`Feed ${pet.food}   (hunger ${hungerPct}%)`, () => startPlacing("food")],
+    ...(buddy.pet
+      ? [[`Feed ${petName(buddy.pet.id)} ${buddy.pet.food}   (${Math.round(settings.buddyHunger)}%)`, () => startPlacing("buddyFood")]]
+      : []),
+    [`Throw ${toy.name.toLowerCase()} ${toy.emoji}`, () => startPlacing("ball")],
+    ["Play: obstacle jump 🪵", () => games.start("jump")],
+    ["Play: hide & seek 📦", () => games.start("hide")],
     ["Stats", () => showStats()],
     ["separator"],
     ["Minimise active window", () => mission("minimize")],
     ["Close active window", () => confirmClose()],
     ["separator"],
     ...Object.values(PETS).map((p) => [
-      `${p.emoji}  ${p.name}${p.id === pet.id ? "  ✓" : ""}`,
+      `${p.emoji}  ${settings.petNames[p.id] || p.name}${p.id === pet.id ? "  ✓" : ""}`,
       () => mountPet(p.id),
     ]),
-    [
-      settings.customImage
-        ? `🖼️  Custom${pet.id === "custom" ? "  ✓" : ""}`
-        : "🖼️  Custom pet from image…",
-      () => (settings.customImage && pet.id !== "custom" ? mountPet("custom") : pickCustomImage()),
-    ],
+    ...settings.customPets.map((p) => [
+      `🖼️  ${p.name}${p.id === pet.id ? "  ✓" : ""}`,
+      () => mountPet(p.id),
+    ]),
     ["separator"],
     [`Follow cursor: ${settings.follow ? "on" : "off"}`, () => toggle("follow")],
     [`Sound: ${settings.sound ? "on" : "off"}`, () => toggle("sound")],
@@ -974,12 +1096,12 @@ function menuItems() {
     [`Speed: ${settings.speed}  ›`, () => setSpeed(cycle(Object.keys(SPEEDS), settings.speed))],
     [
       `Break reminder: ${settings.breakMins ? `${settings.breakMins} min` : "off"}  ›`,
-      () => setBreak(cycle([0, 25, 45, 60], settings.breakMins)),
+      () => setBreak(cycle([0, 25, 45, 60], [0, 25, 45, 60].includes(settings.breakMins) ? settings.breakMins : 0)),
     ],
     ["Settings…", () => invoke("open_settings").catch(() => say("Couldn't open settings."))],
     ["separator"],
     [`Run at startup: ${state.autostart ? "on" : "off"}`, () => toggleAutostart()],
-    ["Hide pet  (Ctrl+Alt+P)", () => invoke("set_hidden", { hidden: true })],
+    [`Hide pet  (${settings.shortcuts.toggle || "no hotkey"})`, () => invoke("set_hidden", { hidden: true })],
     ["separator"],
     ["Quit PocketPet", () => invoke("quit_app")],
   ];
@@ -1013,7 +1135,6 @@ function openMenu(x, y) {
 
   el.stage.appendChild(menu);
   menuEl = menu;
-  // Keep it on screen.
   const mw = menu.offsetWidth;
   const mh = menu.offsetHeight;
   menu.style.left = `${clamp(x, 4, overlayW() - mw - 4)}px`;
@@ -1045,6 +1166,8 @@ function onOutside(e) {
 el.pet.addEventListener("contextmenu", (e) => {
   e.preventDefault();
   if (state.placing) return; // that right-click was "cancel"
+  if (state.mode === "break") return snoozeBreak();
+  if (games.isActive()) return;
   openMenu(e.clientX + 8, e.clientY + 8);
 });
 
@@ -1066,33 +1189,22 @@ async function toggleAutostart() {
   say(ok ? `Run at startup ${want ? "on" : "off"}` : "Couldn't change startup setting.", 1600);
 }
 
-async function pickCustomImage() {
-  try {
-    const url = await invoke("pick_image");
-    if (!url) return;
-    settings.customImage = url;
-    saveSettings();
-    mountPet("custom");
-  } catch (err) {
-    say(String(err), 3200);
-  }
-}
-
 // --- stats -------------------------------------------------------------------
 
 function showStats() {
-  const s = settings.stats;
-  const days = Math.max(1, Math.round((Date.now() - s.firstRun) / 86_400_000));
-  const up = Math.round(performance.now() / 60_000);
+  const p = profileFor(settings, pet.id);
+  const days = Math.max(1, Math.round((Date.now() - p.firstRun) / 86_400_000));
   const bar = (v) => "█".repeat(Math.round(v / 10)) + "░".repeat(10 - Math.round(v / 10));
+  const done = milestonesFor(p).filter((m) => m.unlocked).length;
   say(
     [
-      `${pet.emoji} ${pet.name} — day ${days} together`,
+      `${pet.emoji} ${petName()} — day ${days} together · ${personality()}`,
       `Hunger  ${bar(settings.hunger)} ${Math.round(settings.hunger)}%`,
-      `Meals ${s.meals} · Pats ${s.pats} · Cuddles ${s.pets} · Fetches ${s.fetches}`,
-      `Awake ${up} min this session`,
+      `Meals ${p.meals} · Pats ${p.pats} · Cuddles ${p.pets}`,
+      `Fetches ${p.fetches} · Games ${p.games} · Wins ${p.wins} · Breaks ${p.breaks}`,
+      `Milestones ${done}/3 — full dashboard in Settings…`,
     ].join("\n"),
-    7000,
+    8000,
   );
 }
 
@@ -1119,7 +1231,7 @@ async function confirmClose() {
   }, 5000);
 }
 
-// --- placing things (food, ball) --------------------------------------------
+// --- placing things (food, toy) ---------------------------------------------
 // "Feed"/"Throw" turn the whole overlay clickable for one click so the user can
 // point anywhere; the Rust cursor thread honours `set_capture_all`.
 
@@ -1128,17 +1240,19 @@ const foodSize = () => SIZE * 0.5;
 const ballSize = () => SIZE * 0.36;
 
 function startPlacing(kind) {
-  if (state.mode !== "free" || state.dragging || state.placing) return;
+  if (state.mode !== "free" || state.dragging || state.placing || games.isActive()) return;
+  if (kind === "buddyFood" && !buddy.pet) return;
   state.placing = kind;
-  if (kind === "food") {
-    el.food.textContent = pet.food;
+  if (kind === "food" || kind === "buddyFood") {
+    el.food.textContent = kind === "buddyFood" ? buddy.pet.food : pet.food;
     el.food.style.fontSize = `${foodSize()}px`;
     el.food.classList.remove("eaten");
     el.food.classList.add("placing");
     el.food.hidden = false;
     say("Click anywhere to put the food down.\nRight-click to cancel.", 15_000);
   } else {
-    say("Click where to throw the ball.\nRight-click to cancel.", 15_000);
+    const toy = TOYS[settings.toy] ?? TOYS.ball;
+    say(`Click where to throw the ${toy.name.toLowerCase()}.\nRight-click to cancel.`, 15_000);
   }
   invoke("set_capture_all", { enabled: true }).catch(() => {});
   document.addEventListener("pointerdown", onPlaceClick, true);
@@ -1166,14 +1280,15 @@ function stopPlacing() {
 function cancelPlacing() {
   if (!state.placing) return;
   const kind = stopPlacing();
-  if (kind === "food") el.food.hidden = true;
+  if (kind === "food" || kind === "buddyFood") el.food.hidden = true;
   hideBubble();
 }
 
 function placeAt(x, y) {
   const kind = stopPlacing();
   hideBubble();
-  if (kind === "food") placeFood(x, y);
+  if (kind === "food") placeFood(x, y, false);
+  else if (kind === "buddyFood") placeFood(x, y, true);
   else if (kind === "ball") throwBall(x, y);
 }
 
@@ -1183,30 +1298,36 @@ let hungerSaidAt = 0;
 
 function tickHunger() {
   const nowMs = Date.now();
-  const minutes = Math.max(0, (nowMs - settings.hungerAt) / 60_000);
+  const elapsed = Math.max(0, nowMs - settings.hungerAt);
   const before = settings.hunger;
-  settings.hunger = clamp(
-    settings.hunger + minutes * HUNGER_PER_MIN * (settings.hungerRate / 100),
-    0,
-    100,
-  );
+  settings.hunger = hungerAfter(settings.hunger, elapsed, settings.hungerRate);
+  settings.buddyHunger = hungerAfter(settings.buddyHunger, elapsed, settings.hungerRate);
   settings.hungerAt = nowMs;
   saveSettings();
+  paintHunger();
   // Say something once when crossing into hungry, not every tick.
   const crossed = before < HUNGRY_AT && settings.hunger >= HUNGRY_AT;
-  if (crossed && state.mode === "free" && now() - hungerSaidAt > 60_000) {
+  if (crossed && state.mode === "free" && !state.quiet && now() - hungerSaidAt > 60_000) {
     hungerSaidAt = now();
     say(line("hungry"));
   }
 }
 
+function paintHunger() {
+  const v = clamp(settings.hunger, 0, 100);
+  el.hungerFill.style.width = `${100 - v}%`;
+  el.hunger.dataset.level = v >= STARVING_AT ? "starving" : v >= HUNGRY_AT ? "hungry" : "ok";
+  el.hunger.title = `${petName()}: ${Math.round(100 - v)}% full`;
+}
+
 /** Drop the food at (x, y): it lands on whatever ledge is beneath that point. */
-function placeFood(x, y) {
+function placeFood(x, y, forBuddy) {
   const size = foodSize();
   const floor = groundUnder(x, y);
-  state.food = { x: clamp(x - size / 2, 0, overlayW() - size), y: floor - size };
+  state.food = { x: clamp(x - size / 2, 0, overlayW() - size), y: floor - size, forBuddy };
   el.food.style.transform = `translate3d(${state.food.x}px, ${state.food.y}px, 0)`;
-  eatMission();
+  if (forBuddy) buddyEatMission();
+  else eatMission();
 }
 
 async function eatMission() {
@@ -1229,9 +1350,9 @@ async function eatMission() {
     el.food.hidden = true;
     state.food = null;
     settings.hunger = clamp(settings.hunger - 55, 0, 100);
-    settings.stats.meals += 1;
     settings.hungerAt = Date.now();
-    saveSettings();
+    record("meals");
+    paintHunger();
     setAnim("happy");
     say(line("eat"));
     await wait(900);
@@ -1241,7 +1362,7 @@ async function eatMission() {
   }
 }
 
-// --- ball / fetch ------------------------------------------------------------
+// --- toys / fetch ------------------------------------------------------------
 
 const ball = {
   active: false,
@@ -1254,8 +1375,14 @@ const ball = {
   fadeTimer: null,
 };
 
+function applyToy() {
+  const toy = TOYS[settings.toy] ?? TOYS.ball;
+  el.ball.textContent = toy.emoji;
+}
+
 function throwBall(tx, ty) {
   clearTimeout(ball.fadeTimer);
+  applyToy();
   el.ball.classList.remove("fading");
   el.ball.style.fontSize = `${ballSize()}px`;
   el.ball.hidden = false;
@@ -1269,31 +1396,32 @@ function throwBall(tx, ty) {
   ball.vx = dx / flight;
   ball.vy = ((ty - ballSize() - ball.y) - 0.5 * GRAVITY * flight * flight) / flight;
   ball.returnTo = { x: state.cursor.x, y: state.cursor.y };
-  settings.stats.fetches += 1;
-  saveSettings();
+  record("fetches");
   playChirp();
   setTimeout(fetchMission, 350);
 }
 
 function stepBall(dt) {
   if (!ball.active) return;
+  const toy = TOYS[settings.toy] ?? TOYS.ball;
   const size = ballSize();
   if (ball.carried) {
     // Held in front of the pet.
     ball.x = state.x + (state.facing > 0 ? SIZE * 0.72 : SIZE * 0.28 - size);
     ball.y = state.y + SIZE * 0.55;
   } else {
-    ball.vy += GRAVITY * dt;
+    // Frisbees glide; balls drop.
+    ball.vy += GRAVITY * dt * (settings.toy === "frisbee" ? 0.45 : 1);
     ball.x += ball.vx * dt;
     ball.y += ball.vy * dt;
     const floor = groundUnder(ball.x + size / 2, ball.y + size);
     if (ball.y + size >= floor) {
       ball.y = floor - size;
       if (ball.vy > 120) {
-        ball.vy = -ball.vy * 0.45;
+        ball.vy = -ball.vy * toy.bounce;
         playBoing();
       } else ball.vy = 0;
-      ball.vx *= 0.96; // rolling friction
+      ball.vx *= toy.friction; // rolling friction
     }
     if (ball.x < 0 || ball.x + size > overlayW()) {
       ball.x = clamp(ball.x, 0, overlayW() - size);
@@ -1330,7 +1458,6 @@ async function fetchMission() {
     const homeX = clamp(to.x - SIZE / 2, 0, overlayW() - SIZE);
     await moveTo(homeX, groundUnder(to.x, to.y) - SIZE);
     face(Math.sign(state.cursor.x - footX()) || state.facing);
-    // Drop it.
     ball.carried = false;
     ball.vx = state.facing * 90;
     ball.vy = -220;
@@ -1349,15 +1476,50 @@ async function fetchMission() {
   }
 }
 
-// --- companion ---------------------------------------------------------------
-// A second animal that tags along behind the main pet. It has no brain of its
-// own beyond "walk toward my spot, fall onto ledges, copy the mood".
+// --- games -------------------------------------------------------------------
+// The games module drives the pet directly through this small API and hands
+// it back when the game ends.
 
-const buddy = { pet: null, x: 0, y: 0, vx: 0, vy: 0, facing: 1, anim: "idle" };
+const games = createGames({
+  stage: el.stage,
+  setPet(x, y) {
+    state.x = x;
+    state.y = y;
+    state.vx = state.vy = 0;
+  },
+  repaint: applyTransform,
+  getBounds: () => roamBounds(),
+  getPet: () => ({ x: state.x, y: state.y, size: SIZE }),
+  setAnim,
+  setBusy(busy) {
+    state.mode = busy ? "game" : "free";
+    state.perched = false;
+    state.antic = null;
+    if (busy) {
+      cancelPlacing();
+      hideBubble();
+    } else {
+      state.grounded = false;
+    }
+  },
+  busy: () => state.mode !== "free" || state.dragging || Boolean(state.placing),
+  hidden: () => state.hidden,
+  say,
+  sound: playChirp,
+  record: (kind) => record(kind),
+});
+
+// --- companion ---------------------------------------------------------------
+// A second animal that tags along behind the main pet. It can be fed, patted
+// and petted like the first one; its brain is just "walk toward my spot, fall
+// onto ledges, copy the mood".
+
+const buddy = { pet: null, x: 0, y: 0, vx: 0, vy: 0, facing: 1, anim: "idle", busy: false, hovering: false };
+const buddySize = () => SIZE * 0.85;
 
 function mountBuddy(id) {
   settings.companion = id || "";
-  if (!id) {
+  if (!id || !getPet(id) || id === settings.pet) {
     buddy.pet = null;
     el.buddy.hidden = true;
     return;
@@ -1367,6 +1529,7 @@ function mountBuddy(id) {
   el.buddy.hidden = false;
   buddy.x = state.x - SIZE * 1.3;
   buddy.y = state.y;
+  applyAppearance();
 }
 
 function setBuddyAnim(name) {
@@ -1376,17 +1539,18 @@ function setBuddyAnim(name) {
 }
 
 function stepBuddy(dt, t) {
-  if (!buddy.pet || state.hidden) return;
-  const size = SIZE * 0.85;
+  if (!buddy.pet || state.hidden || buddy.busy) return;
+  const size = buddySize();
   const fx = buddy.x + size / 2;
   const fy = buddy.y + size;
   // Its spot: a body-length behind the pet, on the side away from where it faces.
-  const targetX = footX() - state.facing * SIZE * 1.15;
+  // If the toy is loose it wants that instead.
+  const targetX = ball.active && !ball.carried ? ball.x + ballSize() / 2 + size * 0.7 : footX() - state.facing * SIZE * 1.15;
   const dx = targetX - fx;
   const ground = groundUnder(fx, fy);
   const onGround = fy >= ground - 1 && buddy.vy >= 0;
 
-  if (state.dragging || state.mode === "break") {
+  if (state.dragging || state.mode === "break" || games.isActive()) {
     buddy.vx *= 0.85;
     if (onGround) setBuddyAnim(state.mode === "break" ? "stretch" : "idle");
   } else if (Math.abs(dx) > 40) {
@@ -1412,25 +1576,122 @@ function stepBuddy(dt, t) {
     buddy.y = landing - size;
     buddy.vy = 0;
   }
-  buddy.x = clamp(buddy.x, -size * 0.25, overlayW() - size * 0.75);
+  const bounds = roamBounds();
+  const kept = constrainPoint({ x: buddy.x, y: buddy.y }, bounds, size, avoidRect(bounds));
+  buddy.x = kept.x;
+  buddy.y = kept.y;
+  paintBuddy();
+}
+
+function paintBuddy() {
   el.buddy.style.setProperty("--facing", buddy.facing);
   el.buddy.style.transform = `translate3d(${buddy.x}px, ${buddy.y}px, 0)`;
 }
 
+async function buddyEatMission() {
+  if (!buddy.pet || !state.food) return;
+  buddy.busy = true;
+  try {
+    const food = state.food;
+    const size = foodSize();
+    const bsize = buddySize();
+    const foodCx = food.x + size / 2;
+    const fromLeft = buddy.x + bsize / 2 <= foodCx;
+    const tx = clamp(fromLeft ? foodCx - bsize * 0.78 : foodCx - bsize * 0.22, 0, overlayW() - bsize);
+    const ty = food.y + size - bsize;
+    buddy.facing = fromLeft ? 1 : -1;
+    setBuddyAnim("run");
+    const sx = buddy.x;
+    const sy = buddy.y;
+    const ms = clamp((Math.hypot(tx - sx, ty - sy) / (RUN_SPEED * speedMul())) * 1000, 160, 1400);
+    await tween(ms, (p) => {
+      buddy.x = sx + (tx - sx) * p;
+      buddy.y = sy + (ty - sy) * p - Math.sin(Math.PI * p) * 30;
+      paintBuddy();
+    });
+    setBuddyAnim("eat");
+    el.food.classList.add("eaten");
+    playMunch();
+    await wait(1700);
+    el.food.hidden = true;
+    state.food = null;
+    settings.buddyHunger = clamp(settings.buddyHunger - 55, 0, 100);
+    record("meals", 1, buddy.pet.id);
+    setBuddyAnim("happy");
+    say(`${petName(buddy.pet.id)}: ${pick(buddy.pet.lines.eat ?? GENERIC_LINES.eat)}`, 1800);
+    await wait(900);
+  } finally {
+    setBuddyAnim("idle");
+    buddy.busy = false;
+  }
+}
+
+// Pats and petting for the companion, mirroring the main pet.
+let buddyPatTimer = null;
+let buddyHoverTimer = null;
+
+el.buddy.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (!buddy.pet || buddy.busy || games.isActive()) return;
+  record("pats", 1, buddy.pet.id);
+  setBuddyAnim("happy");
+  playChirp();
+  say(`${petName(buddy.pet.id)}: ${pick(buddy.pet.lines.click ?? GENERIC_LINES.click)}`, 1500);
+  clearTimeout(buddyPatTimer);
+  buddyPatTimer = setTimeout(() => setBuddyAnim("idle"), 1300);
+});
+
+el.buddy.addEventListener("pointerenter", () => {
+  buddy.hovering = true;
+  clearTimeout(buddyHoverTimer);
+  buddyHoverTimer = setTimeout(buddyPetting, 900);
+});
+
+el.buddy.addEventListener("pointerleave", () => {
+  buddy.hovering = false;
+  clearTimeout(buddyHoverTimer);
+});
+
+function buddyPetting() {
+  if (!buddy.hovering || !buddy.pet || buddy.busy) return;
+  record("pets", 1, buddy.pet.id);
+  setBuddyAnim("happy");
+  playPurr();
+  spawnHearts(3, buddy.x, buddy.y, buddySize());
+  clearTimeout(buddyPatTimer);
+  buddyPatTimer = setTimeout(() => setBuddyAnim("idle"), 1500);
+  buddyHoverTimer = setTimeout(buddyPetting, 2600);
+}
+
+el.buddy.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  if (state.placing || games.isActive()) return;
+  openMenu(e.clientX + 8, e.clientY + 8);
+});
+
 // --- break reminder ----------------------------------------------------------
+// Any interval. Click the pet = "I'm back"; right-click the pet = snooze.
+// With work/break cycles on, the break itself is timed and ends on its own.
 
 let breakTimer = null;
 let breakDismiss = null;
+let breakDueAt = 0; // performance.now() when the next reminder fires
+let breakEndsAt = 0; // during a timed break: when it ends
+let breakStartedAt = 0;
 
 /** (Re)arm the reminder. `ms` overrides the configured interval (used to snooze). */
 function scheduleBreak(ms) {
   clearTimeout(breakTimer);
+  breakDueAt = 0;
   if (!settings.breakMins) return;
-  breakTimer = setTimeout(startBreak, ms ?? settings.breakMins * 60_000);
+  const delay = ms ?? settings.breakMins * 60_000;
+  breakDueAt = now() + delay;
+  breakTimer = setTimeout(startBreak, delay);
 }
 
 async function startBreak() {
-  if (state.hidden) {
+  breakDueAt = 0;
+  if (state.hidden || state.quiet) {
     // Can't nag on screen; use a toast instead and try again next interval.
     if (settings.toasts) {
       invoke("notify", {
@@ -1449,33 +1710,123 @@ async function startBreak() {
   state.mode = "break";
   state.perched = false;
   state.antic = null;
+  breakStartedAt = now();
+  breakEndsAt = settings.breakCycles ? now() + settings.breakDuration * 60_000 : 0;
   try {
-    const mon = monitorAt(footX(), footY());
-    const cx = mon.x + mon.w / 2 - SIZE / 2;
-    const floor = groundUnder(cx + SIZE / 2, mon.y + mon.h);
+    const b = roamBounds();
+    const cx = b.x + b.w / 2 - SIZE / 2;
+    const floor = groundUnder(cx + SIZE / 2, b.y + b.h);
     await moveTo(cx, floor - SIZE);
     setAnim("stretch");
     playChirp();
+    const tail = settings.breakCycles
+      ? `\nBreak: ${settings.breakDuration} min. Click me if you're back early.`
+      : "\nClick me when you're back.";
     say(
-      `Break time! ${settings.breakMins} minutes done.\nStand up, stretch, look far away.\nClick me when you're back.`,
+      `Break time! ${settings.breakMins} minutes done.\nStand up, stretch, look far away.${tail}\nRight-click me to snooze ${settings.breakSnooze} min.`,
       10 * 60_000,
     );
     await new Promise((resolve) => {
       breakDismiss = resolve;
+      if (breakEndsAt) setTimeout(() => breakDismiss?.(), breakEndsAt - now());
     });
   } finally {
     breakDismiss = null;
-    state.mode = "free";
+    breakEndsAt = 0;
+    if (state.mode === "break") state.mode = "free";
     setAnim("idle");
-    scheduleBreak();
+    if (!breakDueAt) scheduleBreak();
   }
 }
 
-function endBreak() {
+function endBreak(byUser) {
+  if (state.mode !== "break") return;
+  hideBubble();
+  const tookIt = now() - breakStartedAt > 45_000;
+  if (tookIt) record("breaks");
+  breakDismiss?.();
+  if (byUser) setTimeout(() => say(line("welcome"), 1600), 250);
+}
+
+function snoozeBreak() {
   if (state.mode !== "break") return;
   hideBubble();
   breakDismiss?.();
-  setTimeout(() => say(line("welcome"), 1600), 250);
+  scheduleBreak(settings.breakSnooze * 60_000);
+  setTimeout(() => say(`Okay, ${settings.breakSnooze} more minutes.`, 1600), 250);
+}
+
+/** Small "next break in 12:34" pill above the pet. */
+function paintCountdown() {
+  if (!settings.showCountdown || !settings.breakMins || state.hidden) {
+    el.countdown.hidden = true;
+    return;
+  }
+  let text;
+  if (state.mode === "break" && breakEndsAt) text = `break ${formatCountdown(breakEndsAt - now())}`;
+  else if (breakDueAt) text = `break in ${formatCountdown(breakDueAt - now())}`;
+  else {
+    el.countdown.hidden = true;
+    return;
+  }
+  el.countdown.hidden = false;
+  if (el.countdown.textContent !== text) el.countdown.textContent = text;
+  el.countdown.style.transform = `translate3d(${state.x + SIZE / 2}px, ${state.y - 14}px, 0)`;
+}
+
+// --- focus mode ---------------------------------------------------------------
+// Fullscreen app in front, or inside quiet hours: hide the pet, or keep it but
+// silent and still ("quiet"). Restores itself when the condition clears.
+
+let envTimer = null;
+
+async function pollEnvironment() {
+  clearTimeout(envTimer);
+  try {
+    const env = await invoke("get_environment");
+    state.env = { fullscreen: Boolean(env.fullscreen), onBattery: Boolean(env.on_battery) };
+  } catch {
+    /* keep the last reading */
+  }
+  updateFocus();
+  envTimer = setTimeout(pollEnvironment, lowPowerNow() ? 5000 : 2000);
+}
+
+function updateFocus() {
+  const active = focusActive(settings, state.env);
+  const wantHide = active && settings.focusAction === "hide";
+  const wantQuiet = active && settings.focusAction === "quiet";
+
+  if (wantHide && !state.hidden) {
+    state.focusHidden = true;
+    invoke("set_hidden", { hidden: true }).catch(() => {});
+  } else if (!wantHide && state.focusHidden && state.hidden) {
+    state.focusHidden = false;
+    invoke("set_hidden", { hidden: false }).catch(() => {});
+  } else if (!wantHide) {
+    state.focusHidden = false;
+  }
+
+  if (wantQuiet !== state.quiet) {
+    state.quiet = wantQuiet;
+    el.stage.classList.toggle("quiet", wantQuiet);
+    if (wantQuiet) {
+      cancelPlacing();
+      hideBubble();
+      state.antic = null;
+    }
+  }
+}
+
+// --- shortcuts ----------------------------------------------------------------
+
+async function configureShortcuts() {
+  try {
+    const bad = await invoke("set_hotkeys", { shortcuts: settings.shortcuts });
+    if (bad.length) say(`Couldn't bind: ${bad.join(", ")}. Check Settings › Controls.`, 4000);
+  } catch (err) {
+    console.error(err);
+  }
 }
 
 // --- idle antics -------------------------------------------------------------
@@ -1487,7 +1838,8 @@ let anticTimer = null;
 
 function scheduleAntic() {
   clearTimeout(anticTimer);
-  anticTimer = setTimeout(tryAntic, 9_000 + Math.random() * 16_000);
+  const mul = personality() === "playful" ? 0.6 : personality() === "sleepy" ? 1.6 : 1;
+  anticTimer = setTimeout(tryAntic, (9_000 + Math.random() * 16_000) * mul);
 }
 
 async function tryAntic() {
@@ -1496,6 +1848,7 @@ async function tryAntic() {
     state.mode === "free" &&
     !state.dragging &&
     !state.hidden &&
+    !state.quiet &&
     !state.placing &&
     state.grounded &&
     !state.antic &&
@@ -1505,7 +1858,8 @@ async function tryAntic() {
     // Standing near the edge of a window: peek over it instead.
     const ledge = ledgeInfo();
     const nearEdge = ledge && Math.min(ledge.toLeft, ledge.toRight) < SIZE * 0.9;
-    const antic = nearEdge && Math.random() < 0.6 ? "peek" : pick(ANTICS);
+    const sleepyPool = personality() === "sleepy" ? ["yawn", "stretch", "look"] : ANTICS;
+    const antic = nearEdge && Math.random() < 0.6 ? "peek" : pick(sleepyPool);
     state.antic = antic;
     if (antic === "peek") {
       face(ledge.toLeft < ledge.toRight ? -1 : 1);
@@ -1538,7 +1892,8 @@ async function tryAntic() {
 
 function scheduleChatter() {
   // chatter 0 = never, 100 = every ~30 s, 50 = every ~1-2 min
-  const base = settings.chatter <= 0 ? Infinity : 30_000 + (100 - settings.chatter) * 900;
+  const pMul = personality() === "playful" ? 0.7 : personality() === "sleepy" ? 1.5 : 1;
+  const base = settings.chatter <= 0 ? Infinity : (30_000 + (100 - settings.chatter) * 900) * pMul;
   const delay = base + Math.random() * base * 0.8;
   setTimeout(() => {
     if (
@@ -1546,11 +1901,14 @@ function scheduleChatter() {
       state.mode === "free" &&
       state.anim !== "sleep" &&
       !state.dragging &&
-      !state.hidden
+      !state.hidden &&
+      !state.quiet
     ) {
+      const buddyHungry = buddy.pet && settings.buddyHunger >= HUNGRY_AT && Math.random() < 0.5;
       const hungry = settings.hunger >= HUNGRY_AT && Math.random() < 0.7;
       const late = isLateNight() && Math.random() < 0.4;
-      say(hungry ? line("hungry") : late ? timeGreeting() : line("idle"));
+      if (buddyHungry) say(`${petName(buddy.pet.id)} looks hungry too.`);
+      else say(hungry ? line("hungry") : late ? timeGreeting() : line("idle"));
     }
     scheduleChatter();
   }, Number.isFinite(delay) ? delay : 60_000);
@@ -1563,7 +1921,7 @@ function scheduleChatter() {
 function scheduleMischief() {
   const delay = 60_000 + Math.random() * 90_000;
   setTimeout(async () => {
-    if (settings.mischief && state.mode === "free" && !state.dragging && !state.hidden) {
+    if (settings.mischief && state.mode === "free" && !state.dragging && !state.hidden && !state.quiet) {
       const candidates = state.windows.filter((w) => !w.minimized && !w.foreground);
       if (candidates.length) {
         const victim = pick(candidates);
@@ -1602,7 +1960,12 @@ listen("pet://menu", ({ payload }) => {
     state.hidden = Boolean(value);
     // Fade out before Rust hides the window; fade back in after it shows.
     el.stage.classList.toggle("hidden", state.hidden);
-    if (state.hidden) cancelPlacing();
+    if (state.hidden) {
+      cancelPlacing();
+      if (games.isActive()) games.cancel();
+    } else {
+      state.focusHidden = false;
+    }
     return;
   }
   if (id === "toggle:follow") settings.follow = value ?? !settings.follow;
@@ -1611,6 +1974,8 @@ listen("pet://menu", ({ payload }) => {
   else if (id === "act:say") say(line("idle"));
   else if (id === "act:feed") return startPlacing("food");
   else if (id === "act:ball") return startPlacing("ball");
+  else if (id === "act:game:jump") return games.start("jump");
+  else if (id === "act:game:hide") return games.start("hide");
   else if (id === "act:minimize") return mission("minimize");
   else if (id === "act:close") return confirmClose();
   saveSettings();
@@ -1624,14 +1989,22 @@ async function boot() {
   await refreshWindows();
   state.autostart = await invoke("get_autostart").catch(() => false);
   syncTray();
+  // Hunger while the app was closed: either catches up (default off) or is skipped.
+  if (settings.pauseHungerOffline) {
+    settings.hungerAt = Date.now();
+    saveSettings();
+  }
   mountPet(settings.pet);
   mountBuddy(settings.companion);
+  applyToy();
   face(1);
-  const mon = monitorAt(overlayW() * 0.5, overlayH() * 0.5);
-  state.x = mon.x + mon.w * 0.5;
-  state.y = mon.y + mon.h - SIZE - 60;
+  const b = roamBounds();
+  state.x = b.x + b.w * 0.5;
+  state.y = b.y + b.h - SIZE - 60;
   state.lastCursorMove = now();
 
+  configureShortcuts();
+  pollEnvironment();
   setInterval(refreshWindows, 700);
   setInterval(syncScreen, 5000); // catch monitor hot-plug / resolution changes
   scheduleChatter();
@@ -1640,10 +2013,24 @@ async function boot() {
   scheduleAntic();
   tickHunger();
   setInterval(tickHunger, 30_000);
-  requestAnimationFrame(frame);
+  scheduleFrame();
 }
 
 // Debug hook: lets devtools (or a CDP script) poke at live state.
-window.__pet = { state, get settings() { return settings; }, ball, buddy, say, startPlacing, mission };
+window.__pet = {
+  state,
+  get settings() {
+    return settings;
+  },
+  ball,
+  buddy,
+  games,
+  say,
+  startPlacing,
+  mission,
+  startBreak,
+  updateFocus,
+  reloadSettings,
+};
 
 boot();

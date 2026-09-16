@@ -1,94 +1,426 @@
 // Settings window. Reads and writes the same localStorage entry the overlay
-// uses, then broadcasts "pet://settings" so the overlay applies the change.
+// uses (validated by preferences.js), then broadcasts "pet://settings" so the
+// overlay applies the change.
 import { PETS } from "./pets/index.js";
+import {
+  readSettings,
+  writeSettings,
+  normalizeSettings,
+  parseBackup,
+  profileFor,
+  milestonesFor,
+  accessoryUnlocked,
+  DEFAULTS,
+  STORAGE_KEY,
+} from "./preferences.js";
 
 const { emit } = window.__TAURI__.event;
+const { invoke } = window.__TAURI__.core;
 
-const KEY = "pocketpet";
 const $ = (id) => document.getElementById(id);
-
-function load() {
-  try {
-    return JSON.parse(localStorage.getItem(KEY) ?? "{}");
-  } catch {
-    return {};
-  }
-}
+let settings = readSettings();
 
 function save(patch) {
-  const next = { ...load(), ...patch };
-  localStorage.setItem(KEY, JSON.stringify(next));
+  settings = writeSettings(patch);
   emit("pet://settings", patch).catch(() => {});
 }
 
-// Selects for pet / companion share the same option list.
-const petOptions = Object.values(PETS).map((p) => [p.id, `${p.emoji}  ${p.name}`]);
-for (const [id, label] of petOptions) {
-  $("pet").add(new Option(label, id));
-}
-$("companion").add(new Option("None", ""));
-for (const [id, label] of petOptions) {
-  $("companion").add(new Option(label, id));
-}
-if (load().customImage) $("pet").add(new Option("🖼️  Custom image", "custom"));
+// --- tabs --------------------------------------------------------------------
 
-const fields = {
+for (const tab of document.querySelectorAll('[role="tab"]')) {
+  tab.addEventListener("click", () => showTab(tab.dataset.tab));
+}
+
+function showTab(name) {
+  for (const tab of document.querySelectorAll('[role="tab"]')) {
+    tab.setAttribute("aria-selected", String(tab.dataset.tab === name));
+  }
+  for (const panel of document.querySelectorAll("[data-panel]")) {
+    panel.hidden = panel.dataset.panel !== name;
+  }
+  if (name === "dashboard") renderDashboard();
+  if (name === "pets") renderPets();
+}
+
+// --- pet lists ----------------------------------------------------------------
+
+const allPets = () => [
+  ...Object.values(PETS).map((p) => ({ id: p.id, label: `${p.emoji}  ${settings.petNames[p.id] || p.name}` })),
+  ...settings.customPets.map((p) => ({ id: p.id, label: `🖼️  ${p.name}` })),
+];
+
+function fillPetSelect(select, includeNone) {
+  const current = select.value;
+  select.innerHTML = "";
+  if (includeNone) select.add(new Option("None", ""));
+  for (const p of allPets()) select.add(new Option(p.label, p.id));
+  if ([...select.options].some((o) => o.value === current)) select.value = current;
+}
+
+// --- simple fields -------------------------------------------------------------
+
+const FIELDS = {
   pet: "value",
   companion: "value",
   size: "value",
   speed: "value",
-  breakMins: "value",
+  toy: "value",
   follow: "checked",
   mischief: "checked",
   realClick: "checked",
-  toasts: "checked",
-  sound: "checked",
   chatter: "value",
   hungerRate: "value",
+  showHunger: "checked",
+  pauseHungerOffline: "checked",
+  sound: "checked",
   volume: "value",
+  lowPower: "checked",
+  focusFullscreen: "checked",
+  quietHours: "checked",
+  quietStart: "value",
+  quietEnd: "value",
+  focusAction: "value",
+  monitor: "value",
+  roamMargin: "value",
+  roamBottomOnly: "checked",
+  breakMins: "value",
+  breakSnooze: "value",
+  showCountdown: "checked",
+  toasts: "checked",
+  breakCycles: "checked",
+  breakDuration: "value",
+  speechSize: "value",
+  speechDuration: "value",
 };
-
-const defaults = {
-  pet: "cat",
-  companion: "",
-  size: "medium",
-  speed: "normal",
-  breakMins: 0,
-  follow: true,
-  mischief: false,
-  realClick: false,
-  toasts: true,
-  sound: true,
-  chatter: 50,
-  hungerRate: 100,
-  volume: 60,
-};
+const NUMERIC = new Set([
+  "chatter", "hungerRate", "volume", "roamMargin", "breakMins", "breakSnooze", "breakDuration",
+  "speechSize", "speechDuration",
+]);
 
 function hints() {
-  $("chatterHint").textContent =
-    Number($("chatter").value) === 0 ? "(silent)" : `${$("chatter").value}%`;
-  $("hungerHint").textContent =
-    Number($("hungerRate").value) === 0 ? "(never hungry)" : `${$("hungerRate").value}%`;
-  $("volumeHint").textContent = `${$("volume").value}%`;
+  const pct = (id) => `${$(id).value}%`;
+  $("chatterHint").textContent = Number($("chatter").value) === 0 ? "(silent)" : pct("chatter");
+  $("hungerRateHint").textContent = Number($("hungerRate").value) === 0 ? "(never hungry)" : pct("hungerRate");
+  $("volumeHint").textContent = pct("volume");
+  $("roamMarginHint").textContent = `${$("roamMargin").value} px`;
+  const mins = Number($("breakMins").value);
+  $("breakMinsHint").textContent = mins === 0 ? "(off)" : mins >= 60 ? `${Math.floor(mins / 60)} h ${mins % 60 ? `${mins % 60} min` : ""}` : `${mins} min`;
+  $("speechSizeHint").textContent = `${$("speechSize").value} px`;
+  $("speechDurationHint").textContent = pct("speechDuration");
+  $("hungerNow").textContent = `Right now: ${Math.round(100 - settings.hunger)}% full`;
 }
 
 function fill() {
-  const s = { ...defaults, ...load() };
-  for (const [id, prop] of Object.entries(fields)) {
-    $(id)[prop] = s[id];
-  }
+  settings = readSettings();
+  fillPetSelect($("pet"), false);
+  fillPetSelect($("companion"), true);
+  fillPetSelect($("customisePet"), false);
+  fillPetSelect($("dashPet"), false);
+  for (const [id, prop] of Object.entries(FIELDS)) $(id)[prop] = settings[id];
+  const a = settings.avoidArea;
+  $("avoidEnabled").checked = a.enabled;
+  $("avoidX").value = a.x;
+  $("avoidY").value = a.y;
+  $("avoidW").value = a.w;
+  $("avoidH").value = a.h;
+  for (const key of Object.keys(settings.shortcuts)) $(`sc_${key}`).value = settings.shortcuts[key];
   hints();
+  paintAvoidPreview();
+  renderPets();
+  renderCustomList();
 }
 
-for (const [id, prop] of Object.entries(fields)) {
+for (const [id, prop] of Object.entries(FIELDS)) {
   $(id).addEventListener("input", () => {
     let v = $(id)[prop];
-    if (["breakMins", "chatter", "hungerRate", "volume"].includes(id)) v = Number(v);
+    if (NUMERIC.has(id)) v = Number(v);
     save({ [id]: v });
     hints();
+    if (id === "pet" || id === "companion") fill();
   });
 }
 
+// keep-out area
+for (const id of ["avoidEnabled", "avoidX", "avoidY", "avoidW", "avoidH"]) {
+  $(id).addEventListener("input", () => {
+    save({
+      avoidArea: {
+        enabled: $("avoidEnabled").checked,
+        x: Number($("avoidX").value),
+        y: Number($("avoidY").value),
+        w: Number($("avoidW").value),
+        h: Number($("avoidH").value),
+      },
+    });
+    paintAvoidPreview();
+  });
+}
+
+function paintAvoidPreview() {
+  const a = settings.avoidArea;
+  const box = $("avoidPreview").querySelector(".preview-box");
+  box.style.left = `${a.x}%`;
+  box.style.top = `${a.y}%`;
+  box.style.width = `${a.w}%`;
+  box.style.height = `${a.h}%`;
+  box.style.opacity = a.enabled ? "1" : "0.3";
+}
+
+// monitors: populated from the overlay's screen info
+async function fillMonitors() {
+  const select = $("monitor");
+  const current = settings.monitor;
+  select.innerHTML = "";
+  select.add(new Option("Any (wherever it is)", "all"));
+  try {
+    const info = await invoke("get_screen");
+    (info.monitors ?? []).forEach((m, i) => {
+      select.add(new Option(`Monitor ${i + 1} — ${m.w}×${m.h}${m.x === 0 && m.y === 0 ? " (primary)" : ""}`, String(i)));
+    });
+  } catch {
+    /* overlay not reachable; "Any" still works */
+  }
+  select.value = [...select.options].some((o) => o.value === current) ? current : "all";
+}
+
+// --- pets tab -----------------------------------------------------------------
+
+const ACCESSORIES = [
+  ["none", "None"],
+  ["bow", "🎀 Bow — Making friends"],
+  ["star", "⭐ Star — Playtime star"],
+  ["crown", "👑 Crown — Best friends"],
+];
+
+function renderPets() {
+  const id = $("customisePet").value || settings.pet;
+  const base = allPets().find((p) => p.id === id);
+  $("customiseWho").textContent = base ? `· ${base.label}` : "";
+  $("petName").value = settings.petNames[id] ?? "";
+  $("personality").value = settings.personalities[id] ?? "calm";
+  $("color").value = settings.colors[id] ?? 0;
+  $("colorHint").textContent = `${$("color").value}°`;
+  const acc = $("accessory");
+  acc.innerHTML = "";
+  for (const [value, label] of ACCESSORIES) {
+    const unlocked = accessoryUnlocked(settings, id, value);
+    const opt = new Option(unlocked ? label : `🔒 ${label}`, value);
+    opt.disabled = !unlocked;
+    acc.add(opt);
+  }
+  acc.value = accessoryUnlocked(settings, id, settings.accessories[id]) ? settings.accessories[id] ?? "none" : "none";
+  const locked = milestonesFor(profileFor(settings, id)).filter((m) => !m.unlocked);
+  $("accessoryHint").textContent = locked.length
+    ? `Unlock: ${locked.map((m) => `${m.label} (${m.value}/${m.goal})`).join(" · ")}`
+    : "All accessories unlocked!";
+}
+
+$("customisePet").addEventListener("input", renderPets);
+$("petName").addEventListener("change", () => {
+  const id = $("customisePet").value;
+  save({ petNames: { [id]: $("petName").value } });
+  fill();
+});
+$("personality").addEventListener("input", () => save({ personalities: { [$("customisePet").value]: $("personality").value } }));
+$("color").addEventListener("input", () => {
+  save({ colors: { [$("customisePet").value]: Number($("color").value) } });
+  $("colorHint").textContent = `${$("color").value}°`;
+});
+$("accessory").addEventListener("input", () => save({ accessories: { [$("customisePet").value]: $("accessory").value } }));
+
+// custom image pets: pick → square-crop → shrink to 256 px → store
+$("addCustom").addEventListener("click", async () => {
+  if (settings.customPets.length >= 12) {
+    alert("You already have 12 custom pets. Remove one first.");
+    return;
+  }
+  try {
+    const url = await invoke("pick_image");
+    if (!url) return;
+    const image = await shrink(url, 256);
+    const id = `custom:${Date.now().toString(36)}`;
+    save({ customPets: [...settings.customPets, { id, name: `My pet ${settings.customPets.length + 1}`, image }] });
+    fill();
+  } catch (err) {
+    alert(String(err));
+  }
+});
+
+/** Centre-crop to a square and resize on a canvas; GIFs lose animation but keep the first frame. */
+function shrink(dataUrl, size) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const side = Math.min(img.naturalWidth, img.naturalHeight);
+      const sx = (img.naturalWidth - side) / 2;
+      const sy = (img.naturalHeight - side) / 2;
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = size;
+      canvas.getContext("2d").drawImage(img, sx, sy, side, side, 0, 0, size, size);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = () => reject(new Error("That file could not be read as an image."));
+    img.src = dataUrl;
+  });
+}
+
+function renderCustomList() {
+  const list = $("customList");
+  list.innerHTML = "";
+  for (const p of settings.customPets) {
+    const li = document.createElement("li");
+    const img = new Image();
+    img.src = p.image;
+    const name = document.createElement("input");
+    name.type = "text";
+    name.value = p.name;
+    name.maxLength = 40;
+    name.className = "grow";
+    name.addEventListener("change", () => {
+      save({ customPets: settings.customPets.map((c) => (c.id === p.id ? { ...c, name: name.value || "My pet" } : c)) });
+      fill();
+    });
+    const use = document.createElement("button");
+    use.textContent = settings.pet === p.id ? "Active" : "Use";
+    use.disabled = settings.pet === p.id;
+    use.addEventListener("click", () => {
+      save({ pet: p.id });
+      fill();
+    });
+    const del = document.createElement("button");
+    del.textContent = "Remove";
+    del.addEventListener("click", () => {
+      const patch = { customPets: settings.customPets.filter((c) => c.id !== p.id) };
+      if (settings.pet === p.id) patch.pet = "cat";
+      if (settings.companion === p.id) patch.companion = "";
+      save(patch);
+      fill();
+    });
+    li.append(img, name, use, del);
+    list.append(li);
+  }
+}
+
+// --- shortcuts ----------------------------------------------------------------
+
+for (const key of Object.keys(DEFAULTS.shortcuts)) {
+  const input = $(`sc_${key}`);
+  input.addEventListener("keydown", (e) => {
+    e.preventDefault();
+    if (e.key === "Backspace" || e.key === "Delete") {
+      input.value = "";
+      save({ shortcuts: { [key]: "" } });
+      return;
+    }
+    if (["Control", "Alt", "Shift", "Meta"].includes(e.key)) return;
+    const mods = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Win"].filter(Boolean);
+    if (!mods.length) {
+      input.value = "needs Ctrl / Alt / Shift / Win";
+      return;
+    }
+    let k = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+    if (k === " ") k = "Space";
+    const combo = [...mods, k].join("+");
+    input.value = combo;
+    save({ shortcuts: { [key]: combo } });
+  });
+}
+
+$("resetShortcuts").addEventListener("click", () => {
+  save({ shortcuts: { ...DEFAULTS.shortcuts } });
+  fill();
+});
+
+// --- dashboard -------------------------------------------------------------------
+
+function renderDashboard() {
+  const id = $("dashPet").value || settings.pet;
+  const p = profileFor(settings, id);
+  const days = Math.max(1, Math.round((Date.now() - p.firstRun) / 86_400_000));
+  const stat = (v, label) => `<div class="stat"><b>${v}</b><span>${label}</span></div>`;
+  $("dashSummary").innerHTML = [
+    stat(days, "days together"),
+    stat(p.meals, "meals"),
+    stat(p.pats + p.pets, "pats & cuddles"),
+    stat(p.fetches, "fetches"),
+    stat(p.games, "games"),
+    stat(p.wins, "wins"),
+    stat(p.breaks, "breaks taken"),
+    stat(settings.personalities[id] ?? "calm", "personality"),
+    stat(`${Math.round(100 - (id === settings.pet ? settings.hunger : id === settings.companion ? settings.buddyHunger : 0))}%`, "full"),
+  ].join("");
+  const ms = $("dashMilestones");
+  ms.innerHTML = "";
+  for (const m of milestonesFor(p)) {
+    const li = document.createElement("li");
+    li.className = m.unlocked ? "" : "locked";
+    const pctDone = Math.min(100, Math.round((m.value / m.goal) * 100));
+    li.innerHTML = `<span>${m.unlocked ? "🏆" : "🔒"}</span><span class="grow"><b>${m.label}</b><br><span class="hint">${m.description}</span></span><div class="bar"><div style="width:${pctDone}%"></div></div><span class="hint">${Math.min(m.value, m.goal)}/${m.goal}</span>`;
+    ms.append(li);
+  }
+  const j = $("dashJournal");
+  j.innerHTML = "";
+  const entries = [...p.journal].reverse();
+  if (!entries.length) j.innerHTML = '<li class="hint">Nothing yet — feed, pat or play and it shows up here.</li>';
+  for (const e of entries) {
+    const li = document.createElement("li");
+    const t = document.createElement("time");
+    t.textContent = new Date(e.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const text = document.createElement("span");
+    text.textContent = e.text;
+    li.append(t, text);
+    j.append(li);
+  }
+}
+
+$("dashPet").addEventListener("input", renderDashboard);
+
+// --- backup ------------------------------------------------------------------------
+
+$("exportBackup").addEventListener("click", async () => {
+  const status = $("backupStatus");
+  try {
+    const json = JSON.stringify({ app: "PocketPet", version: 1, exportedAt: new Date().toISOString(), settings: readSettings() }, null, 2);
+    const path = await invoke("save_backup", { json });
+    status.textContent = path ? `Saved to ${path}` : "Export cancelled.";
+  } catch (err) {
+    status.textContent = `Export failed: ${err}`;
+  }
+});
+
+$("importBackup").addEventListener("click", async () => {
+  const status = $("backupStatus");
+  try {
+    const text = await invoke("load_backup");
+    if (!text) {
+      status.textContent = "Import cancelled.";
+      return;
+    }
+    const restored = parseBackup(JSON.parse(text));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(restored));
+    settings = readSettings();
+    emit("pet://settings", { restored: true }).catch(() => {});
+    fill();
+    status.textContent = "Backup restored.";
+  } catch (err) {
+    status.textContent = `Import failed: ${err.message ?? err}`;
+  }
+});
+
+$("resetAll").addEventListener("click", () => {
+  if (!confirm("Reset every setting, custom pet and all progress? This cannot be undone.")) return;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeSettings({})));
+  settings = readSettings();
+  emit("pet://settings", { reset: true }).catch(() => {});
+  fill();
+});
+
+// --- boot ---------------------------------------------------------------------------
+
 // Another window (the overlay) may change settings too; stay in sync.
-window.addEventListener("storage", fill);
+window.addEventListener("storage", () => {
+  fill();
+  if (!document.querySelector('[data-panel="dashboard"]').hidden) renderDashboard();
+});
 fill();
+fillMonitors();
