@@ -531,20 +531,23 @@ body {
 
 /* --- appearance: colour, accessory, personality ---------------------------- */
 
-.sprite {
-  filter: hue-rotate(var(--hue, 0deg));
-}
-.accessory {
+.accessories {
   position: absolute;
-  top: calc(var(--pet-size) * -0.12);
-  left: 50%;
-  translate: -50% 0;
-  font-size: calc(var(--pet-size) * 0.3);
-  line-height: 1;
+  inset: 0;
   pointer-events: none;
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3));
-  transform: scaleX(var(--facing, 1));
 }
+.acc {
+  position: absolute;
+  font-size: calc(var(--pet-size) * 0.3 * var(--acc-size, 1));
+  line-height: 1;
+  translate: calc(-50% + var(--acc-x, 0%)) calc(-50% + var(--acc-y, 0%));
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3));
+}
+.acc-hat  { left: 50%; top: 4%; }
+.acc-face { left: 50%; top: 34%; }
+.acc-neck { left: 50%; top: 60%; }
+.acc-paw  { left: calc(50% + 32% * var(--facing, 1)); top: 64%; }
+.acc-back { left: calc(50% - 30% * var(--facing, 1)); top: 48%; z-index: -1; opacity: 0.9; }
 .pet[data-personality="sleepy"] .p-eye {
   animation-duration: 3.2s;
 }

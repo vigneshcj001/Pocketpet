@@ -6,6 +6,8 @@ export default {
   emoji: "🐱",
   /** Where the paw sits, as a fraction of the sprite box. Used to aim reaches. */
   /** What this animal eats; shown as the food item and in menus. */
+  /** Body fills, darkest-to-lightest offsets relative to the first; recoloured by the colour picker. */
+  tint: ["#f5a94c", "#f9b75c", "#d3812f", "#e8963c", "#e08b30", "#ffdcb0", "#ffe6c4"],
   food: "🐟",
   paw: { x: 0.7, y: 0.6 },
   svg: `

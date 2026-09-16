@@ -97,10 +97,18 @@
               <option value="sleepy">Sleepy — slower, dozes off quickly</option>
             </select>
           </label>
-          <label>Colour <span class="hint" id="colorHint"></span>
-            <input type="range" id="color" min="0" max="360" step="5" />
-          </label>
-          <label>Accessory <select id="accessory"></select></label>
+          <label>Colour <span class="hint" id="colorHint"></span></label>
+          <div class="pair colour-row">
+            <input type="color" id="color" />
+            <button type="button" id="colorReset">Original colour</button>
+          </div>
+          <p class="hint">Recolours the body; eyes, cheeks, beaks and feet keep their own. Custom image pets can't be recoloured.</p>
+        </div>
+        <div class="card">
+          <h2>Accessories <span class="hint" id="accessoryCount"></span></h2>
+          <p class="hint">Up to 4 per pet. Any emoji works — pick one below or type your own.</p>
+          <div id="emojiPresets" class="chips"></div>
+          <ul id="accessoryList" class="list accessories-list"></ul>
           <p class="hint" id="accessoryHint"></p>
         </div>
         <div class="card">

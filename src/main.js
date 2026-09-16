@@ -5,7 +5,6 @@ import {
   recordActivity,
   profileFor,
   milestonesFor,
-  accessoryUnlocked,
 } from "./preferences.js";
 import {
   focusActive,
@@ -56,7 +55,7 @@ const el = {
   stage: document.getElementById("stage"),
   pet: document.getElementById("pet"),
   sprite: document.getElementById("sprite"),
-  accessory: document.getElementById("accessory"),
+  accessories: document.getElementById("accessories"),
   bubble: document.getElementById("bubble"),
   bubbleText: document.getElementById("bubble-text"),
   shadow: document.getElementById("shadow"),
@@ -65,7 +64,7 @@ const el = {
   ball: document.getElementById("ball"),
   buddy: document.getElementById("buddy"),
   buddySprite: document.getElementById("buddy-sprite"),
-  buddyAccessory: document.getElementById("buddy-accessory"),
+  buddyAccessories: document.getElementById("buddy-accessories"),
   hearts: document.getElementById("hearts"),
   hunger: document.getElementById("hunger"),
   hungerFill: document.getElementById("hunger-fill"),
@@ -119,6 +118,7 @@ function reloadSettings(patch) {
   if (games.isActive()) games.cancel();
   if (changed("size")) setSize(fresh.size, true);
   if (changed("pet") || changed("customPets")) mountPet(fresh.pet, true);
+  if (changed("colors") || changed("accessories")) applyAppearance();
   if (changed("companion") || changed("customPets")) mountBuddy(fresh.companion);
   if (changed("breakMins") || changed("breakCycles") || changed("breakDuration")) {
     endBreak(false);
@@ -440,13 +440,10 @@ function setBreak(mins) {
 
 // --- sprite & appearance -----------------------------------------------------
 
-const ACCESSORY_GLYPH = { none: "", bow: "🎀", star: "⭐", crown: "👑" };
-
 function mountPet(id, quiet) {
   pet = getPet(id);
   settings.pet = pet.id;
   saveSettings();
-  el.sprite.innerHTML = pet.svg;
   applyAppearance();
   if (!quiet) {
     say(timeGreeting() ?? line("greet"));
@@ -454,18 +451,88 @@ function mountPet(id, quiet) {
   }
 }
 
-/** Colour, accessory and speech-bubble sizing for both animals. */
-function applyAppearance() {
-  const dress = (root, glyphEl, id) => {
-    root.style.setProperty("--hue", `${settings.colors[id] ?? 0}deg`);
-    const acc = settings.accessories[id] ?? "none";
-    const allowed = accessoryUnlocked(settings, id, acc) ? acc : "none";
-    glyphEl.textContent = ACCESSORY_GLYPH[allowed] ?? "";
-    glyphEl.hidden = allowed === "none";
-    root.dataset.personality = settings.personalities[id] ?? "calm";
+// Colour picking works on the SVG itself: every fill in the pet's `tint`
+// list is replaced by the chosen colour, keeping each fill's lightness
+// offset from the first (the "base" body colour). Raster custom pets can't
+// be recoloured this way and are left alone.
+
+function hexToHsl(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = ((n >> 16) & 255) / 255;
+  const g = ((n >> 8) & 255) / 255;
+  const b = (n & 255) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return { h: 0, s: 0, l };
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h;
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+  else if (max === g) h = ((b - r) / d + 2) / 6;
+  else h = ((r - g) / d + 4) / 6;
+  return { h: h * 360, s, l };
+}
+
+function hslToHex(h, s, l) {
+  const f = (n) => {
+    const k = (n + h / 30) % 12;
+    const c = l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(255 * c).toString(16).padStart(2, "0");
   };
-  dress(el.pet, el.accessory, pet.id);
-  if (buddy.pet) dress(el.buddy, el.buddyAccessory, buddy.pet.id);
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+
+function tintedSvg(p, color) {
+  if (!color || !p.tint?.length) return p.svg;
+  const target = hexToHsl(color);
+  const base = hexToHsl(p.tint[0]);
+  const map = new Map();
+  for (const c of p.tint) {
+    const src = hexToHsl(c);
+    const l = clamp(target.l + (src.l - base.l), 0.04, 0.96);
+    const s = clamp(target.s + (src.s - base.s) * 0.5, 0, 1);
+    map.set(c.toLowerCase(), hslToHex(target.h, s, l));
+  }
+  const pattern = new RegExp([...map.keys()].join("|"), "gi");
+  return p.svg.replace(pattern, (m) => map.get(m.toLowerCase()) ?? m);
+}
+
+/** Paint a sprite only when its colour/pet actually changed (innerHTML restarts CSS animations). */
+function paintSprite(root, p, id) {
+  const key = `${p.id}|${settings.colors[id] ?? ""}`;
+  if (root.dataset.key === key) return;
+  root.dataset.key = key;
+  root.innerHTML = tintedSvg(p, settings.colors[id]);
+}
+
+function renderAccessories(container, id) {
+  const items = settings.accessories[id] ?? [];
+  const key = JSON.stringify(items);
+  if (container.dataset.key === key) return;
+  container.dataset.key = key;
+  container.innerHTML = "";
+  for (const a of items) {
+    const span = document.createElement("span");
+    span.className = `acc acc-${a.slot}`;
+    span.textContent = a.emoji;
+    span.style.setProperty("--acc-size", a.size);
+    span.style.setProperty("--acc-x", `${a.x}%`);
+    span.style.setProperty("--acc-y", `${a.y}%`);
+    container.append(span);
+  }
+}
+
+/** Colour, accessories, personality and speech-bubble sizing for both animals. */
+function applyAppearance() {
+  paintSprite(el.sprite, pet, pet.id);
+  renderAccessories(el.accessories, pet.id);
+  el.pet.dataset.personality = settings.personalities[pet.id] ?? "calm";
+  if (buddy.pet) {
+    paintSprite(el.buddySprite, buddy.pet, buddy.pet.id);
+    renderAccessories(el.buddyAccessories, buddy.pet.id);
+    el.buddy.dataset.personality = settings.personalities[buddy.pet.id] ?? "calm";
+  }
   document.documentElement.style.setProperty("--speech-size", `${settings.speechSize}px`);
   el.hunger.hidden = !settings.showHunger;
   paintHunger();
@@ -1525,7 +1592,6 @@ function mountBuddy(id) {
     return;
   }
   buddy.pet = getPet(id);
-  el.buddySprite.innerHTML = buddy.pet.svg;
   el.buddy.hidden = false;
   buddy.x = state.x - SIZE * 1.3;
   buddy.y = state.y;

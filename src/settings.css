@@ -233,6 +233,40 @@ button:hover {
   border: 1px solid var(--danger);
   border-radius: 4px;
 }
+.colour-row input[type="color"] {
+  width: 64px;
+  height: 36px;
+  padding: 2px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  flex: 0 0 auto;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0 10px;
+}
+.chips button {
+  padding: 3px 7px;
+  font-size: 18px;
+  line-height: 1;
+}
+.accessories-list li {
+  flex-wrap: wrap;
+}
+.accessories-list input.emoji {
+  width: 56px;
+  font-size: 18px;
+  text-align: center;
+}
+.accessories-list select {
+  width: auto;
+}
+.accessories-list input[type="range"] {
+  width: 90px;
+}
 kbd {
   font: inherit;
   padding: 1px 5px;

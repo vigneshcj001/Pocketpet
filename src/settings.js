@@ -9,10 +9,12 @@ import {
   parseBackup,
   profileFor,
   milestonesFor,
-  accessoryUnlocked,
+  ACCESSORY_SLOTS,
+  MAX_ACCESSORIES,
   DEFAULTS,
   STORAGE_KEY,
 } from "./preferences.js";
+import { getPet } from "./pets/index.js";
 
 const { emit } = window.__TAURI__.event;
 const { invoke } = window.__TAURI__.core;
@@ -185,12 +187,11 @@ async function fillMonitors() {
 
 // --- pets tab -----------------------------------------------------------------
 
-const ACCESSORIES = [
-  ["none", "None"],
-  ["bow", "🎀 Bow — Making friends"],
-  ["star", "⭐ Star — Playtime star"],
-  ["crown", "👑 Crown — Best friends"],
-];
+const EMOJI_PRESETS = ["🎀", "⭐", "👑", "🎩", "🧢", "👒", "🎓", "🕶️", "👓", "🧣", "🎧", "🌸", "🍀", "🦋", "🐝", "💎", "🔥", "🎈", "🎃", "🎄", "❤️", "🍪", "🎒", "🪄"];
+const SLOT_LABEL = { hat: "Hat (top)", face: "Face", neck: "Neck", back: "Back", paw: "Paw" };
+
+/** The pet's own body colour, so the picker starts somewhere sensible. */
+const baseColor = (id) => getPet(id)?.tint?.[0] ?? "#f5a94c";
 
 function renderPets() {
   const id = $("customisePet").value || settings.pet;
@@ -198,21 +199,97 @@ function renderPets() {
   $("customiseWho").textContent = base ? `· ${base.label}` : "";
   $("petName").value = settings.petNames[id] ?? "";
   $("personality").value = settings.personalities[id] ?? "calm";
-  $("color").value = settings.colors[id] ?? 0;
-  $("colorHint").textContent = `${$("color").value}°`;
-  const acc = $("accessory");
-  acc.innerHTML = "";
-  for (const [value, label] of ACCESSORIES) {
-    const unlocked = accessoryUnlocked(settings, id, value);
-    const opt = new Option(unlocked ? label : `🔒 ${label}`, value);
-    opt.disabled = !unlocked;
-    acc.add(opt);
+  const custom = settings.colors[id];
+  $("color").value = custom || baseColor(id);
+  $("color").disabled = id.startsWith("custom:");
+  $("colorHint").textContent = id.startsWith("custom:") ? "(image pets keep their colours)" : custom ? custom : "(original)";
+  renderAccessories(id);
+}
+
+function renderAccessories(id) {
+  const items = settings.accessories[id] ?? [];
+  $("accessoryCount").textContent = `· ${items.length}/${MAX_ACCESSORIES}`;
+  const presets = $("emojiPresets");
+  presets.innerHTML = "";
+  for (const e of EMOJI_PRESETS) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = e;
+    b.title = `Add ${e}`;
+    b.disabled = items.length >= MAX_ACCESSORIES;
+    b.addEventListener("click", () => addAccessory(id, e));
+    presets.append(b);
   }
-  acc.value = accessoryUnlocked(settings, id, settings.accessories[id]) ? settings.accessories[id] ?? "none" : "none";
-  const locked = milestonesFor(profileFor(settings, id)).filter((m) => !m.unlocked);
-  $("accessoryHint").textContent = locked.length
-    ? `Unlock: ${locked.map((m) => `${m.label} (${m.value}/${m.goal})`).join(" · ")}`
-    : "All accessories unlocked!";
+  const custom = document.createElement("button");
+  custom.type = "button";
+  custom.textContent = "+ type…";
+  custom.disabled = items.length >= MAX_ACCESSORIES;
+  custom.addEventListener("click", () => {
+    const e = prompt("Emoji to add:");
+    if (e && e.trim()) addAccessory(id, e.trim().slice(0, 8));
+  });
+  presets.append(custom);
+
+  const list = $("accessoryList");
+  list.innerHTML = "";
+  items.forEach((a, i) => {
+    const li = document.createElement("li");
+    const emoji = document.createElement("input");
+    emoji.type = "text";
+    emoji.className = "emoji";
+    emoji.maxLength = 8;
+    emoji.value = a.emoji;
+    emoji.addEventListener("change", () => updateAccessory(id, i, { emoji: emoji.value }));
+    const slot = document.createElement("select");
+    for (const s of ACCESSORY_SLOTS) slot.add(new Option(SLOT_LABEL[s], s));
+    slot.value = a.slot;
+    slot.addEventListener("input", () => updateAccessory(id, i, { slot: slot.value }));
+    const size = document.createElement("input");
+    size.type = "range";
+    size.min = "0.5";
+    size.max = "1.8";
+    size.step = "0.1";
+    size.value = a.size;
+    size.title = "Size";
+    size.addEventListener("input", () => updateAccessory(id, i, { size: Number(size.value) }));
+    const nudge = document.createElement("input");
+    nudge.type = "range";
+    nudge.min = "-50";
+    nudge.max = "50";
+    nudge.step = "2";
+    nudge.value = a.y;
+    nudge.title = "Up / down";
+    nudge.addEventListener("input", () => updateAccessory(id, i, { y: Number(nudge.value) }));
+    const del = document.createElement("button");
+    del.type = "button";
+    del.textContent = "Remove";
+    del.addEventListener("click", () =>
+      setAccessories(id, (readSettings().accessories[id] ?? []).filter((_, j) => j !== i)),
+    );
+    li.append(emoji, slot, size, nudge, del);
+    list.append(li);
+  });
+  $("accessoryHint").textContent = items.length ? "Drag the sliders: size, then up/down." : "No accessories yet.";
+}
+
+function setAccessories(id, items) {
+  save({ accessories: { [id]: items } });
+  renderAccessories(id);
+}
+
+function addAccessory(id, emoji) {
+  const items = settings.accessories[id] ?? [];
+  if (items.length >= MAX_ACCESSORIES) return;
+  const used = new Set(items.map((a) => a.slot));
+  const slot = ACCESSORY_SLOTS.find((s) => !used.has(s)) ?? "hat";
+  setAccessories(id, [...items, { emoji, slot, size: 1, x: 0, y: 0 }]);
+}
+
+function updateAccessory(id, index, patch) {
+  const items = (settings.accessories[id] ?? []).map((a, i) => (i === index ? { ...a, ...patch } : a));
+  save({ accessories: { [id]: items } });
+  settings = readSettings();
+  $("accessoryCount").textContent = `· ${items.length}/${MAX_ACCESSORIES}`;
 }
 
 $("customisePet").addEventListener("input", renderPets);
@@ -223,10 +300,15 @@ $("petName").addEventListener("change", () => {
 });
 $("personality").addEventListener("input", () => save({ personalities: { [$("customisePet").value]: $("personality").value } }));
 $("color").addEventListener("input", () => {
-  save({ colors: { [$("customisePet").value]: Number($("color").value) } });
-  $("colorHint").textContent = `${$("color").value}°`;
+  const id = $("customisePet").value;
+  save({ colors: { [id]: $("color").value } });
+  $("colorHint").textContent = $("color").value;
 });
-$("accessory").addEventListener("input", () => save({ accessories: { [$("customisePet").value]: $("accessory").value } }));
+$("colorReset").addEventListener("click", () => {
+  const id = $("customisePet").value;
+  save({ colors: { [id]: "" } });
+  renderPets();
+});
 
 // custom image pets: pick → square-crop → shrink to 256 px → store
 $("addCustom").addEventListener("click", async () => {

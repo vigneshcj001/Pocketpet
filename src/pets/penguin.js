@@ -3,6 +3,8 @@ export default {
   name: "Penguin",
   emoji: "🐧",
   /** What this animal eats; shown as the food item and in menus. */
+  /** Body fills, darkest-to-lightest offsets relative to the first; recoloured by the colour picker. */
+  tint: ["#241f2b", "#2b2533"],
   food: "🐟",
   paw: { x: 0.69, y: 0.6 },
   svg: `

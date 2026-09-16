@@ -23,6 +23,31 @@ const number = (value, fallback, min, max) => typeof value !== "boolean" && valu
 const choice = (value, options, fallback) => options.includes(value) ? value : fallback;
 const shortText = (value, max = 40) => typeof value === "string" ? value.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, max) : "";
 const time = (value, fallback) => typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : fallback;
+export const ACCESSORY_SLOTS = ["hat", "face", "neck", "back", "paw"];
+export const MAX_ACCESSORIES = 4;
+const HEX = /^#[0-9a-f]{6}$/i;
+/** Legacy hue slider value → a hex colour of that hue. */
+const hueToHex = (h) => {
+  const f = (n) => { const k = (n + h / 30) % 12; const c = 0.55 - 0.75 * 0.45 * Math.max(-1, Math.min(k - 3, 9 - k, 1)); return Math.round(255 * c).toString(16).padStart(2, "0"); };
+  return `#${f(0)}${f(8)}${f(4)}`;
+};
+const LEGACY_ACCESSORY = { bow: { emoji: "🎀", slot: "neck" }, star: { emoji: "⭐", slot: "hat" }, crown: { emoji: "👑", slot: "hat" } };
+export function normalizeAccessory(value) {
+  const raw = object(value);
+  const emoji = shortText(raw.emoji, 8);
+  if (!emoji) return null;
+  return {
+    emoji,
+    slot: choice(raw.slot, ACCESSORY_SLOTS, "hat"),
+    size: number(raw.size, 1, 0.5, 1.8),
+    x: number(raw.x, 0, -50, 50),
+    y: number(raw.y, 0, -50, 50),
+  };
+}
+export function normalizeAccessories(value) {
+  if (typeof value === "string") return value in LEGACY_ACCESSORY ? [normalizeAccessory({ ...LEGACY_ACCESSORY[value], size: 1 })] : [];
+  return (Array.isArray(value) ? value : []).map(normalizeAccessory).filter(Boolean).slice(0, MAX_ACCESSORIES);
+}
 export const validImage = (value) => typeof value === "string" && value.length <= 1_800_000 && /^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value);
 
 export function normalizeProfile(value, now = Date.now()) {
@@ -83,8 +108,10 @@ export function normalizeSettings(input) {
     const name = shortText(object(raw.petNames)[id]);
     if (name) next.petNames[id] = name;
     next.personalities[id] = choice(object(raw.personalities)[id], ["playful", "calm", "sleepy"], "calm");
-    next.colors[id] = number(object(raw.colors)[id], 0, 0, 360);
-    next.accessories[id] = choice(object(raw.accessories)[id], ["none", "bow", "star", "crown"], "none");
+    const color = object(raw.colors)[id];
+    next.colors[id] = typeof color === "string" && HEX.test(color) ? color.toLowerCase()
+      : typeof color === "number" && color > 0 && color <= 360 ? hueToHex(color) : "";
+    next.accessories[id] = normalizeAccessories(object(raw.accessories)[id]);
   }
   for (const key of Object.keys(next.shortcuts)) {
     const value = object(raw.shortcuts)[key];
@@ -136,8 +163,9 @@ export function recordActivity(id, kind, amount = 1) {
   return writeSettings({ profiles: { [id]: profile }, stats: { [kind]: settings.stats[kind] + increment } });
 }
 
-export function accessoryUnlocked(settings, id, accessory) {
-  return accessory === "none" || milestonesFor(profileFor(settings, id)).some((milestone) => milestone.id === accessory && milestone.unlocked);
+/** Accessories are free-form now; milestones are trophies, not locks. */
+export function accessoryUnlocked() {
+  return true;
 }
 
 export function parseBackup(value) {

@@ -3,6 +3,8 @@ export default {
   name: "Panda",
   emoji: "🐼",
   /** What this animal eats; shown as the food item and in menus. */
+  /** Body fills, darkest-to-lightest offsets relative to the first; recoloured by the colour picker. */
+  tint: ["#25212b", "#1a161f", "#332e3a", "#2a252f"],
   food: "🎋",
   paw: { x: 0.71, y: 0.58 },
   svg: `

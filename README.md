@@ -49,9 +49,11 @@ Built with Tauri v2 (Rust + WebView2). No Electron, no npm, no bundler.
   when a fullscreen app is in front or during your quiet hours.
 - **Breaks, properly.** Any interval, snooze (right-click the pet), a
   countdown pill above it, and optional timed work/break sessions.
-- **Make it yours.** Name, colour, personality (playful / calm / sleepy) and
-  unlockable accessories per pet. Up to 12 custom-image pets, auto-cropped
-  and shrunk.
+- **Make it yours.** Name, a real colour picker that recolours the body
+  (eyes, cheeks, beaks stay), personality (playful / calm / sleepy), and up to
+  four accessories per pet — any emoji, in hat / face / neck / back / paw
+  slots with size and offset. Up to 12 custom-image pets, auto-cropped and
+  shrunk.
 - **Companion that counts.** Feed, pat and cuddle the second pet too; it has
   its own hunger and history and chases the toy alongside.
 - **Toys and games.** Ball, yarn or frisbee for fetch; obstacle-jump and
