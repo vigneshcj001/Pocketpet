@@ -45,6 +45,11 @@ struct Flags {
     interactive: AtomicBool,
     /// Overlay hidden via the tray or the hotkey.
     hidden: AtomicBool,
+    /// Keep manual and automatic hiding independent so focus mode never
+    /// reveals a pet the user deliberately hid.
+    manual_hidden: AtomicBool,
+    focus_hidden: AtomicBool,
+    low_power: AtomicBool,
     /// While the user is choosing where to put food, every click belongs to
     /// us, not to whatever is underneath.
     capture_all: AtomicBool,
@@ -105,9 +110,21 @@ struct WindowTarget {
 #[tauri::command]
 fn get_screen(window: WebviewWindow) -> ScreenInfo {
     let layout = extras::monitor_layout();
+    let virtual_screen = win::virtual_screen();
+    let overlay = window.app_handle().get_webview_window("overlay");
+    if let Some(overlay) = overlay.as_ref() {
+        let wanted_position = PhysicalPosition::new(virtual_screen.x, virtual_screen.y);
+        let wanted_size = PhysicalSize::new(virtual_screen.w.max(1) as u32, virtual_screen.h.max(1) as u32);
+        if overlay.outer_position().ok() != Some(wanted_position) {
+            let _ = overlay.set_position(wanted_position);
+        }
+        if overlay.outer_size().ok() != Some(wanted_size) {
+            let _ = overlay.set_size(wanted_size);
+        }
+    }
     ScreenInfo {
-        virtual_screen: win::virtual_screen(),
-        scale: window.scale_factor().unwrap_or(1.0),
+        virtual_screen,
+        scale: overlay.as_ref().unwrap_or(&window).scale_factor().unwrap_or(1.0),
         monitors: layout.iter().map(|(m, _)| *m).collect(),
         work_areas: layout.iter().map(|(_, w)| *w).collect(),
     }
@@ -217,6 +234,19 @@ fn set_hidden(hidden: bool, app: AppHandle) {
     apply_hidden(&app, hidden);
 }
 
+#[tauri::command]
+fn set_focus_hidden(hidden: bool, app: AppHandle) {
+    if let Some(flags) = app.try_state::<Flags>() {
+        flags.focus_hidden.store(hidden, Ordering::Relaxed);
+    }
+    sync_hidden(&app);
+}
+
+#[tauri::command]
+fn set_low_power(enabled: bool, flags: State<'_, Flags>) {
+    flags.low_power.store(enabled, Ordering::Relaxed);
+}
+
 /// The frontend owns size/speed/break settings (they live in localStorage), so
 /// it tells the tray which radio entries to tick after boot and on every change.
 #[tauri::command]
@@ -318,10 +348,20 @@ fn quit_app(app: AppHandle) {
 /// Called from the tray, the hotkey thread and the pet's own menu.
 fn apply_hidden(app: &AppHandle, hidden: bool) {
     if let Some(flags) = app.try_state::<Flags>() {
-        flags.hidden.store(hidden, Ordering::Relaxed);
+        flags.manual_hidden.store(hidden, Ordering::Relaxed);
     }
     if let Some(t) = app.try_state::<TrayToggles>() {
         let _ = t.hide.set_checked(hidden);
+    }
+    sync_hidden(app);
+}
+
+fn sync_hidden(app: &AppHandle) {
+    let Some(flags) = app.try_state::<Flags>() else { return };
+    let hidden = flags.manual_hidden.load(Ordering::Relaxed)
+        || flags.focus_hidden.load(Ordering::Relaxed);
+    if flags.hidden.swap(hidden, Ordering::Relaxed) == hidden {
+        return;
     }
     // Show first so the fade-in has something to draw on; on hide, let the
     // frontend fade out before the window actually disappears.
@@ -352,7 +392,7 @@ fn apply_hidden(app: &AppHandle, hidden: bool) {
 fn toggle_hidden(app: &AppHandle) {
     let hidden = app
         .try_state::<Flags>()
-        .map(|f| f.hidden.load(Ordering::Relaxed))
+        .map(|f| f.manual_hidden.load(Ordering::Relaxed))
         .unwrap_or(false);
     apply_hidden(app, !hidden);
 }
@@ -417,7 +457,12 @@ fn spawn_cursor_thread(app: AppHandle) {
         let mut click_through = true;
 
         loop {
-            std::thread::sleep(Duration::from_millis(16));
+            let delay = app.try_state::<Flags>().map(|flags| {
+                if flags.hidden.load(Ordering::Relaxed) { 150 }
+                else if flags.low_power.load(Ordering::Relaxed) { 45 }
+                else { 16 }
+            }).unwrap_or(45);
+            std::thread::sleep(Duration::from_millis(delay));
 
             let Some(window) = app.get_webview_window("overlay") else {
                 continue;
@@ -613,6 +658,9 @@ pub fn run() {
         .manage(Flags {
             interactive: AtomicBool::new(true),
             hidden: AtomicBool::new(false),
+            manual_hidden: AtomicBool::new(false),
+            focus_hidden: AtomicBool::new(false),
+            low_power: AtomicBool::new(false),
             capture_all: AtomicBool::new(false),
         })
         .invoke_handler(tauri::generate_handler![
@@ -627,6 +675,8 @@ pub fn run() {
             get_autostart,
             set_autostart,
             set_hidden,
+            set_focus_hidden,
+            set_low_power,
             sync_tray,
             pick_image,
             notify,

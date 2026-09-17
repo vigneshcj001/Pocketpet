@@ -9,6 +9,7 @@ import {
   parseBackup,
   profileFor,
   milestonesFor,
+  accessoryUnlocked,
   ACCESSORY_SLOTS,
   MAX_ACCESSORIES,
   DEFAULTS,
@@ -215,8 +216,9 @@ function renderAccessories(id) {
     const b = document.createElement("button");
     b.type = "button";
     b.textContent = e;
-    b.title = `Add ${e}`;
-    b.disabled = items.length >= MAX_ACCESSORIES;
+    const unlocked = accessoryUnlocked(settings, id, e);
+    b.title = unlocked ? `Add ${e}` : `${e} unlocks from this pet's milestones. See Dashboard.`;
+    b.disabled = items.length >= MAX_ACCESSORIES || !unlocked;
     b.addEventListener("click", () => addAccessory(id, e));
     presets.append(b);
   }
@@ -279,13 +281,17 @@ function setAccessories(id, items) {
 
 function addAccessory(id, emoji) {
   const items = settings.accessories[id] ?? [];
-  if (items.length >= MAX_ACCESSORIES) return;
+  if (items.length >= MAX_ACCESSORIES || !accessoryUnlocked(settings, id, emoji)) return;
   const used = new Set(items.map((a) => a.slot));
   const slot = ACCESSORY_SLOTS.find((s) => !used.has(s)) ?? "hat";
   setAccessories(id, [...items, { emoji, slot, size: 1, x: 0, y: 0 }]);
 }
 
 function updateAccessory(id, index, patch) {
+  if (patch.emoji && !accessoryUnlocked(settings, id, patch.emoji)) {
+    renderAccessories(id);
+    return;
+  }
   const items = (settings.accessories[id] ?? []).map((a, i) => (i === index ? { ...a, ...patch } : a));
   save({ accessories: { [id]: items } });
   settings = readSettings();

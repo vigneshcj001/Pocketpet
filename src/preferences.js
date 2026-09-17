@@ -163,9 +163,11 @@ export function recordActivity(id, kind, amount = 1) {
   return writeSettings({ profiles: { [id]: profile }, stats: { [kind]: settings.stats[kind] + increment } });
 }
 
-/** Accessories are free-form now; milestones are trophies, not locks. */
-export function accessoryUnlocked() {
-  return true;
+/** A few prize accessories become available as a pet's friendship grows. */
+export function accessoryUnlocked(settings, id, accessory) {
+  const reward = { "🎀": "bow", "⭐": "star", "👑": "crown" }[accessory];
+  if (!reward) return true;
+  return milestonesFor(profileFor(settings, id)).some((m) => m.id === reward && m.unlocked);
 }
 
 export function parseBackup(value) {

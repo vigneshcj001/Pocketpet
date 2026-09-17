@@ -24,24 +24,24 @@ Built with Tauri v2 (Rust + WebView2). No Electron, no npm, no bundler.
 - **Two menus.** Right-click the pet for an in-place menu, or use the tray icon.
 - **Click-through everywhere except the pet.** Your clicks land on whatever is
   underneath; only the pet body, its bubble and its menu catch input.
-- **Feed it.** Hunger creeps up over the day (even while the app is closed).
-  Pick *Feed*, click anywhere, and it runs over and eats. A starving pet slows
-  down and nags.
-- **Fetch.** *Throw ball* lobs a ball where you click; the pet chases it down
-  and brings it back to you.
+- **Feed it.** Pick *Feed*, click anywhere, and it runs over and eats. The
+  fullness bar shows when food is needed. Offline hunger is paused by default.
+- **Fetch.** Throw a ball, yarn or frisbee where you click; the pet chases it
+  down and brings it back to you.
 - **Pet it.** Rest the cursor on it for a second: purring and hearts. Click for
   a pat, double-click to send it up onto the window you're working in.
 - **A life of its own.** Yawns, stretches, looks around, spins, wanders, peeks
   over window edges when the cursor is still; sleeps sooner late at night and
   greets you by time of day.
-- **Break reminder.** Every 25/45/60 min it walks to the middle of the screen,
-  stretches and asks you to. Toast notification instead if it is hidden.
-- **Companion.** A second animal that tags along behind the first.
-- **Your own picture as a pet.** Any PNG/GIF/JPG under 1.5 MB.
+- **Break reminder.** Set any interval, then snooze or start a timed break.
+  A toast appears instead when the pet is hidden.
+- **Companion.** A second animal that can be fed, patted and played with.
+- **Your own picture as a pet.** Add up to 12 PNG, GIF, JPG or WebP pictures;
+  each is cropped and resized before saving.
 - **Sounds.** Synthesised chirp, purr, munch and boing — no audio files. Mute
   and volume in settings.
-- **Size, speed, run-at-startup, Ctrl+Alt+P to hide/show,** a settings window,
-  and a keyboard-navigable, theme-aware right-click menu.
+- **Size, speed, run-at-startup and editable global shortcuts,** a settings
+  window, and a keyboard-navigable, theme-aware right-click menu.
 - **Multi-monitor aware.** Stands on the bottom of *its* screen, not the
   tallest one. Pick a monitor, set an edge margin, keep it to the bottom
   strip, or mark a keep-out area it must never enter.
@@ -51,7 +51,8 @@ Built with Tauri v2 (Rust + WebView2). No Electron, no npm, no bundler.
   countdown pill above it, and optional timed work/break sessions.
 - **Make it yours.** Name, a real colour picker that recolours the body
   (eyes, cheeks, beaks stay), personality (playful / calm / sleepy), and up to
-  four accessories per pet — any emoji, in hat / face / neck / back / paw
+  four accessories per pet — most emoji are free, while the bow, star and crown
+  unlock through milestones. Place them in hat / face / neck / back / paw
   slots with size and offset. Up to 12 custom-image pets, auto-cropped and
   shrunk.
 - **Companion that counts.** Feed, pat and cuddle the second pet too; it has
@@ -159,13 +160,15 @@ shows up in the system tray.
   clicks.
 - **Hover on it** for a second and it purrs; **double-click** it to make it
   hop onto the active window and stay there; drag it again to release.
-- **Feed / Throw ball** from either menu, then click where the food or ball
+- **Feed / Throw toy** from either menu, then click where the food or toy
   should go. Right-click cancels.
-- **Stats** in the pet menu shows hunger, meals, pats and days together.
+- **Stats** in the pet menu shows a quick view; Settings → Dashboard has each
+  pet's history, journal and milestones.
 - **Tray icon** has the same actions plus Size, Speed, Break reminder, Run at
   startup, Hide pet and *Settings…* (a proper window with sliders for chatter,
   hunger rate, volume and companion).
-- **Ctrl+Alt+P** hides and shows the pet from anywhere.
+- **Ctrl+Alt+P** hides and shows the pet from anywhere by default. Settings →
+  Controls lets you change it or add feed, play and settings shortcuts.
 - **Quit** from either menu.
 
 Settings persist between runs; the settings window and the overlay share them
@@ -181,8 +184,7 @@ This installs the Tauri CLI if needed and produces
 `src-tauri\target\release\bundle\nsis\PocketPet_0.1.0_x64-setup.exe`. Run that to
 install PocketPet like any other app.
 
-To start it with Windows, press `Win+R`, run `shell:startup`, and drop a
-shortcut to the installed `PocketPet.exe` into that folder.
+To start it with Windows, use **Run at startup** in the pet menu or tray menu.
 
 ## Adding an animal
 

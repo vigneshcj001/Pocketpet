@@ -125,6 +125,7 @@ function reloadSettings(patch) {
     scheduleBreak();
   }
   if (changed("shortcuts")) configureShortcuts();
+  if (changed("lowPower")) invoke("set_low_power", { enabled: settings.lowPower }).catch(console.error);
   if (changed("toy")) applyToy();
   applyAppearance();
   updateFocus();
@@ -250,12 +251,14 @@ function monitorAt(x, y) {
  */
 function roamBounds() {
   const mons = monitorsCss();
-  let home;
+  const work = (screen.work_areas ?? []).map(cssRect);
+  let index;
   if (settings.monitor !== "all" && mons[Number(settings.monitor)]) {
-    home = mons[Number(settings.monitor)];
+    index = Number(settings.monitor);
   } else {
-    home = monitorAt(footX(), footY());
+    index = mons.indexOf(monitorAt(footX(), footY()));
   }
+  const home = work[index] ?? mons[index] ?? { x: 0, y: 0, w: overlayW(), h: overlayH() };
   return insetBounds(home, settings.roamMargin, SIZE, settings.roamBottomOnly);
 }
 
@@ -633,6 +636,13 @@ async function refreshWindows() {
   } catch {
     state.windows = [];
   }
+}
+
+function scheduleWindowRefresh() {
+  setTimeout(async () => {
+    if (!state.hidden) await refreshWindows();
+    scheduleWindowRefresh();
+  }, state.hidden ? 5000 : lowPowerNow() ? 2500 : 700);
 }
 
 // --- main loop ---------------------------------------------------------------
@@ -1586,7 +1596,7 @@ const buddySize = () => SIZE * 0.85;
 
 function mountBuddy(id) {
   settings.companion = id || "";
-  if (!id || !getPet(id) || id === settings.pet) {
+  if (!id) {
     buddy.pet = null;
     el.buddy.hidden = true;
     return;
@@ -1863,14 +1873,9 @@ function updateFocus() {
   const wantHide = active && settings.focusAction === "hide";
   const wantQuiet = active && settings.focusAction === "quiet";
 
-  if (wantHide && !state.hidden) {
-    state.focusHidden = true;
-    invoke("set_hidden", { hidden: true }).catch(() => {});
-  } else if (!wantHide && state.focusHidden && state.hidden) {
-    state.focusHidden = false;
-    invoke("set_hidden", { hidden: false }).catch(() => {});
-  } else if (!wantHide) {
-    state.focusHidden = false;
+  if (wantHide !== state.focusHidden) {
+    state.focusHidden = wantHide;
+    invoke("set_focus_hidden", { hidden: wantHide }).catch((err) => console.error(err));
   }
 
   if (wantQuiet !== state.quiet) {
@@ -2029,8 +2034,6 @@ listen("pet://menu", ({ payload }) => {
     if (state.hidden) {
       cancelPlacing();
       if (games.isActive()) games.cancel();
-    } else {
-      state.focusHidden = false;
     }
     return;
   }
@@ -2070,8 +2073,9 @@ async function boot() {
   state.lastCursorMove = now();
 
   configureShortcuts();
+  invoke("set_low_power", { enabled: settings.lowPower }).catch(console.error);
   pollEnvironment();
-  setInterval(refreshWindows, 700);
+  scheduleWindowRefresh();
   setInterval(syncScreen, 5000); // catch monitor hot-plug / resolution changes
   scheduleChatter();
   scheduleMischief();
