@@ -47,7 +47,7 @@ pub const PROVIDERS: [Provider; 6] = [
     Provider { id: "claude", wire: Wire::Anthropic, base_url: "https://api.anthropic.com", needs_key: true, default_model: "claude-opus-5" },
     Provider { id: "openai", wire: Wire::OpenAi, base_url: "https://api.openai.com/v1", needs_key: true, default_model: "gpt-4o-mini" },
     Provider { id: "groq", wire: Wire::OpenAi, base_url: "https://api.groq.com/openai/v1", needs_key: true, default_model: "llama-3.3-70b-versatile" },
-    Provider { id: "gemini", wire: Wire::OpenAi, base_url: "https://generativelanguage.googleapis.com/v1beta/openai", needs_key: true, default_model: "gemini-2.0-flash" },
+    Provider { id: "gemini", wire: Wire::OpenAi, base_url: "https://generativelanguage.googleapis.com/v1beta/openai", needs_key: true, default_model: "gemini-3.6-flash" },
     Provider { id: "ollama", wire: Wire::OpenAi, base_url: "http://localhost:11434/v1", needs_key: false, default_model: "llama3.2" },
     Provider { id: "custom", wire: Wire::OpenAi, base_url: "http://localhost:1234/v1", needs_key: false, default_model: "" },
 ];
@@ -376,8 +376,7 @@ async fn run_anthropic(
         let status = resp.status();
         let v: Value = resp.json().await.map_err(|e| format!("Bad response: {e}"))?;
         if !status.is_success() {
-            let msg = v.pointer("/error/message").and_then(Value::as_str).unwrap_or("request failed");
-            return Err(format!("{} {}: {}", req.provider, status.as_u16(), msg));
+            return Err(format!("{} {}: {}", req.provider, status.as_u16(), api_error(&v)));
         }
         let content = v.get("content").cloned().unwrap_or(json!([]));
         // Narrate server tool calls as they appear in the response.
@@ -485,12 +484,7 @@ async fn run_openai(
         let status = resp.status();
         let v: Value = resp.json().await.map_err(|e| format!("Bad response: {e}"))?;
         if !status.is_success() {
-            let msg = v
-                .pointer("/error/message")
-                .and_then(Value::as_str)
-                .or(v.get("error").and_then(Value::as_str))
-                .unwrap_or("request failed");
-            return Err(format!("{} {}: {}", req.provider, status.as_u16(), msg));
+            return Err(format!("{} {}: {}", req.provider, status.as_u16(), api_error(&v)));
         }
         let message = v.pointer("/choices/0/message").cloned().ok_or("No choices in response")?;
         let calls = message.get("tool_calls").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -544,6 +538,18 @@ async fn run_openai(
         }
     }
     Err("Gave up after too many steps.".into())
+}
+
+/// Providers disagree on error shapes: `{error:{message}}`, `[{error:{message}}]` (Gemini),
+/// `{error:"text"}`, or `{message}`.
+fn api_error(v: &Value) -> String {
+    v.pointer("/error/message")
+        .or(v.pointer("/0/error/message"))
+        .or(v.get("message"))
+        .and_then(Value::as_str)
+        .or(v.get("error").and_then(Value::as_str))
+        .unwrap_or("request failed")
+        .to_string()
 }
 
 // --- model listing ----------------------------------------------------------------
@@ -610,11 +616,13 @@ pub async fn list_models(provider_id: &str, override_url: &str) -> Result<Vec<St
                 .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
-                .filter_map(|m| m.get("id").and_then(Value::as_str).map(String::from))
+                .filter_map(|m| m.get("id").and_then(Value::as_str))
+                // Gemini lists "models/gemini-…"; the chat endpoint accepts the bare id.
+                .map(|id| id.trim_start_matches("models/").to_string())
                 .collect();
             ids.sort();
             if ids.is_empty() {
-                return Err(v.pointer("/error/message").and_then(Value::as_str).unwrap_or("no models returned").to_string());
+                return Err(api_error(&v));
             }
             Ok(ids)
         }
