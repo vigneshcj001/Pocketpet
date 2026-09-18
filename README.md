@@ -237,7 +237,19 @@ src-tauri/
 
 ## Documents
 
-- [Business requirements](docs/BUSINESS_REQUIREMENTS.md) — vision, goals, scope, business rules, success criteria, risks.
-- [Technical requirements](docs/TECHNICAL_REQUIREMENTS.md) — platform, architecture, functional and non-functional requirements, interfaces, build and release.
-- [App flow](docs/APP_FLOW.md) — launch, frame loop, interaction map, care loop, breaks/focus, task agent sequence, data locations.
-- [Agents](docs/AGENTS.md) — the task agent (providers, prompt, tools, guardrails, recovery, events), browser driver, rule-based pet behaviours, narration, how to extend.
+Full documentation tree in [docs/](docs/README.md):
+
+| Folder | Contents |
+|--------|----------|
+| [01_Product](docs/01_Product/) | PRD, business requirements, user stories |
+| [02_Requirements](docs/02_Requirements/) | SRS, NFRs, acceptance criteria |
+| [03_Architecture](docs/03_Architecture/) | system, agentic, data and API architecture |
+| [04_Agents](docs/04_Agents/) | agent registry, requirements, workflows, tool registry, memory, human-in-the-loop |
+| [05_AI](docs/05_AI/) | model strategy, prompt design, retrieval, evaluation, guardrails |
+| [06_Engineering](docs/06_Engineering/) | technical design, coding standards, git strategy |
+| [07_Testing](docs/07_Testing/) | test plan, agent evaluation, security and performance testing |
+| [08_DevOps](docs/08_DevOps/) | CI/CD, deployment, environment config, rollback |
+| [09_Security](docs/09_Security/) | security architecture, access control, data privacy, AI security |
+| [10_Operations](docs/10_Operations/) | monitoring, incident runbook, cost monitoring |
+| [11_Governance](docs/11_Governance/) | AI governance, audit logging, model/prompt versioning |
+| [12_Releases](docs/12_Releases/) | changelog, release notes |

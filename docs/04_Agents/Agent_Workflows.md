@@ -1,4 +1,4 @@
-# PocketPet — App Flow
+# Agent Workflows and App Flow
 
 Version 0.1 · September 2026
 

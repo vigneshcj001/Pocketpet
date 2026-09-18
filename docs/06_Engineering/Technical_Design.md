@@ -1,4 +1,4 @@
-# PocketPet — Technical Requirements
+# Technical Design
 
 Version 0.1 · September 2026
 
