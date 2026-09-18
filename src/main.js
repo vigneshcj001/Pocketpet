@@ -1145,6 +1145,7 @@ function menuItems() {
   const toy = TOYS[settings.toy] ?? TOYS.ball;
   const hungerPct = Math.round(settings.hunger);
   return [
+    ["Ask me to do something… 🌐", () => invoke("open_tasks").catch(() => say("Couldn't open the task window."))],
     ["Say something", () => say(line("idle"))],
     [`Feed ${pet.food}   (hunger ${hungerPct}%)`, () => startPlacing("food")],
     ...(buddy.pet
@@ -2051,6 +2052,64 @@ listen("pet://menu", ({ payload }) => {
 });
 
 listen("pet://settings", ({ payload }) => reloadSettings(payload));
+
+// --- task agent narration ------------------------------------------------------
+// The Rust agent streams progress; the pet plays it out in its bubble and logs
+// finished errands in the journal. The full answer lives in the Tasks window.
+
+let taskAnim = null;
+
+function rememberTask(payload, status) {
+  const d = payload.detail ?? {};
+  if (!d.task) return;
+  const entry = {
+    id: String(payload.id ?? Date.now()),
+    at: Date.now(),
+    task: String(d.task),
+    provider: String(d.provider ?? "claude"),
+    model: String(d.model ?? ""),
+    status,
+    answer: status === "done" ? String(payload.text ?? "") : String(payload.text ?? "").slice(0, 400),
+  };
+  settings.tasks = [...settings.tasks.filter((t) => t.id !== entry.id), entry].slice(-50);
+  saveSettings();
+  // Tell the Tasks window (and anyone else) that history changed.
+  window.__TAURI__.event.emit("pet://settings", { tasks: true }).catch(() => {});
+}
+
+listen("pet://task", ({ payload }) => {
+  const { kind, text } = payload ?? {};
+  const narrate = settings.agent?.narrate !== false && !state.quiet && !state.hidden;
+  if (kind === "start") {
+    if (narrate) say("On it! Let me look that up…", 3000);
+    if (state.mode === "free") {
+      state.antic = null;
+      setAnim("look");
+      taskAnim = setTimeout(() => setAnim("idle"), 1500);
+    }
+  } else if (kind === "tool") {
+    if (narrate) say(text.length > 90 ? text.slice(0, 88) + "…" : text, 2500);
+  } else if (kind === "answer") {
+    clearTimeout(taskAnim);
+    record("tasks");
+    rememberTask(payload, "done");
+    if (narrate) {
+      const first = String(text).split("\n").find((l) => l.trim()) ?? "";
+      say(`Done! ${first.length > 140 ? first.slice(0, 138) + "…" : first}\n(Full answer in the Tasks window.)`, 9000);
+      setAnim("happy");
+      playChirp();
+      setTimeout(() => setAnim("idle"), 1300);
+    }
+  } else if (kind === "error") {
+    clearTimeout(taskAnim);
+    rememberTask(payload, "error");
+    if (narrate) say(`Hmm, that didn't work: ${String(text).slice(0, 120)}`, 6000);
+  } else if (kind === "cancelled") {
+    clearTimeout(taskAnim);
+    rememberTask(payload, "cancelled");
+    if (narrate) say("Okay, stopped.", 1500);
+  }
+});
 
 async function boot() {
   applySize();

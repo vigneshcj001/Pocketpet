@@ -2,6 +2,7 @@
 //! monitor, walks to your cursor, perches on your windows, and can reach out
 //! and press their caption buttons.
 
+mod agent;
 mod extras;
 mod startup;
 mod titlebar;
@@ -9,7 +10,7 @@ mod win;
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -339,6 +340,94 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+// --- task agent ----------------------------------------------------------------
+
+#[derive(Serialize)]
+struct ProviderInfo {
+    id: &'static str,
+    needs_key: bool,
+    base_url: &'static str,
+    default_model: &'static str,
+    has_key: bool,
+}
+
+#[tauri::command]
+fn agent_providers() -> Vec<ProviderInfo> {
+    agent::PROVIDERS
+        .iter()
+        .map(|p| ProviderInfo {
+            id: p.id,
+            needs_key: p.needs_key,
+            base_url: p.base_url,
+            default_model: p.default_model,
+            has_key: agent::read_key(p.id).is_some(),
+        })
+        .collect()
+}
+
+#[tauri::command]
+fn agent_set_key(provider: String, key: String) -> Result<(), String> {
+    if key.trim().is_empty() {
+        agent::delete_key(&provider);
+        return Ok(());
+    }
+    agent::store_key(&provider, key.trim())
+}
+
+#[tauri::command]
+fn agent_delete_key(provider: String) -> bool {
+    agent::delete_key(&provider)
+}
+
+#[tauri::command]
+async fn agent_models(provider: String, base_url: String) -> Result<Vec<String>, String> {
+    agent::list_models(&provider, &base_url).await
+}
+
+#[tauri::command]
+fn agent_run(req: agent::RunRequest, app: AppHandle, tasks: State<'_, Arc<agent::Tasks>>) -> String {
+    let id = req.id.clone();
+    let tasks = tasks.inner().clone();
+    tauri::async_runtime::spawn(agent::run(app, tasks, req));
+    id
+}
+
+#[tauri::command]
+fn agent_cancel(id: String, tasks: State<'_, Arc<agent::Tasks>>) -> bool {
+    agent::cancel(&tasks, &id)
+}
+
+#[tauri::command]
+async fn open_tasks(app: AppHandle) -> Result<(), String> {
+    if let Some(existing) = app.get_webview_window("tasks") {
+        let _ = existing.unminimize();
+        let _ = existing.set_focus();
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(&app, "tasks", WebviewUrl::App("tasks.html".into()))
+        .title("PocketPet tasks")
+        .inner_size(520.0, 680.0)
+        .min_inner_size(380.0, 420.0)
+        .build()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// Open a link in the user's default browser (the task answers are full of them).
+#[tauri::command]
+fn open_external(url: String) -> bool {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return false;
+    }
+    use windows::core::HSTRING;
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let verb = HSTRING::from("open");
+    let target = HSTRING::from(url);
+    let h = unsafe { ShellExecuteW(None, &verb, &target, None, None, SW_SHOWNORMAL) };
+    (h.0 as isize) > 32
+}
+
 #[tauri::command]
 fn quit_app(app: AppHandle) {
     app.exit(0);
@@ -594,6 +683,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayToggles> {
     let game_jump = MenuItem::with_id(app, "act:game:jump", "Pet: obstacle jump", true, None::<&str>)?;
     let game_hide = MenuItem::with_id(app, "act:game:hide", "Pet: hide & seek", true, None::<&str>)?;
     let settings_item = MenuItem::with_id(app, "app:settings", "Settings...", true, None::<&str>)?;
+    let tasks_item = MenuItem::with_id(app, "app:tasks", "Ask me to do something...", true, None::<&str>)?;
     let autostart = CheckMenuItem::with_id(
         app,
         "toggle:autostart",
@@ -635,6 +725,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayToggles> {
             &autostart,
             &hide,
             &PredefinedMenuItem::separator(app)?,
+            &tasks_item,
             &settings_item,
             &quit,
         ],
@@ -654,6 +745,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .manage(HitRegions::default())
+        .manage(Arc::new(agent::Tasks::default()))
         .manage(LastForeground::default())
         .manage(Flags {
             interactive: AtomicBool::new(true),
@@ -685,6 +777,14 @@ pub fn run() {
             set_hotkeys,
             save_backup,
             load_backup,
+            agent_providers,
+            agent_set_key,
+            agent_delete_key,
+            agent_models,
+            agent_run,
+            agent_cancel,
+            open_tasks,
+            open_external,
             quit_app,
         ])
         .setup(|app| {
@@ -712,6 +812,13 @@ pub fn run() {
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
                     let _ = open_settings(app).await;
+                });
+                return;
+            }
+            if id == "app:tasks" {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = open_tasks(app).await;
                 });
                 return;
             }

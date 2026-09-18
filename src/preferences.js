@@ -2,7 +2,9 @@
 // This module has no DOM dependency, so migrations and backup validation can be tested.
 export const STORAGE_KEY = "pocketpet";
 export const BUILTIN_IDS = ["cat", "duck", "panda", "penguin"];
-export const ACTIVITY_KEYS = ["meals", "pats", "pets", "fetches", "games", "wins", "breaks"];
+export const ACTIVITY_KEYS = ["meals", "pats", "pets", "fetches", "games", "wins", "breaks", "tasks"];
+export const AGENT_PROVIDERS = ["claude", "openai", "groq", "gemini", "ollama", "custom"];
+export const MAX_TASK_HISTORY = 50;
 export const DEFAULTS = {
   pet: "cat", companion: "", size: "medium", speed: "normal",
   follow: true, mischief: false, realClick: false, sound: true, toasts: true,
@@ -15,6 +17,10 @@ export const DEFAULTS = {
   breakMins: 0, breakDuration: 5, breakSnooze: 5, breakCycles: false, showCountdown: true,
   pauseHungerOffline: true, showHunger: true, toy: "ball", speechSize: 14, speechDuration: 100, lowPower: false,
   shortcuts: { toggle: "Ctrl+Alt+P", feed: "Ctrl+Alt+F", play: "Ctrl+Alt+B", settings: "Ctrl+Alt+S" },
+  /** Task agent: which provider/model to use. Keys are NOT here (Credential Manager). */
+  agent: { provider: "claude", models: {}, baseUrls: {}, maxTurns: 20, narrate: true },
+  /** Recent tasks, newest last. */
+  tasks: [],
 };
 
 const object = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -117,6 +123,28 @@ export function normalizeSettings(input) {
     const value = object(raw.shortcuts)[key];
     if (typeof value === "string") next.shortcuts[key] = shortText(value, 80);
   }
+  const agent = object(raw.agent);
+  next.agent.provider = choice(agent.provider, AGENT_PROVIDERS, "claude");
+  next.agent.maxTurns = Math.round(number(agent.maxTurns, 20, 4, 40));
+  next.agent.narrate = typeof agent.narrate === "boolean" ? agent.narrate : true;
+  for (const id of AGENT_PROVIDERS) {
+    const model = shortText(object(agent.models)[id], 120);
+    if (model) next.agent.models[id] = model;
+    const url = shortText(object(agent.baseUrls)[id], 300);
+    if (/^https?:\/\//.test(url)) next.agent.baseUrls[id] = url;
+  }
+  next.tasks = (Array.isArray(raw.tasks) ? raw.tasks : []).slice(-MAX_TASK_HISTORY).map((t) => {
+    const task = object(t);
+    return {
+      id: shortText(task.id, 40) || String(Date.now()),
+      at: number(task.at, Date.now(), 1, Date.now()),
+      task: shortText(task.task, 600),
+      provider: choice(task.provider, AGENT_PROVIDERS, "claude"),
+      model: shortText(task.model, 120),
+      status: choice(task.status, ["done", "error", "cancelled"], "done"),
+      answer: typeof task.answer === "string" ? task.answer.slice(0, 8000) : "",
+    };
+  }).filter((t) => t.task);
   return next;
 }
 
@@ -130,6 +158,15 @@ export function writeSettings(patch) {
   const raw = { ...previous, ...object(patch) };
   for (const key of ["petNames", "personalities", "colors", "accessories", "profiles", "stats", "shortcuts", "avoidArea"])
     if (patch?.[key]) raw[key] = { ...previous[key], ...object(patch[key]) };
+  if (patch?.agent) {
+    const a = object(patch.agent);
+    raw.agent = {
+      ...previous.agent,
+      ...a,
+      models: { ...previous.agent.models, ...object(a.models) },
+      baseUrls: { ...previous.agent.baseUrls, ...object(a.baseUrls) },
+    };
+  }
   const next = normalizeSettings(raw);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   return next;
@@ -157,7 +194,7 @@ export function recordActivity(id, kind, amount = 1) {
   if (!increment) return settings;
   const profile = profileFor(settings, id);
   profile[kind] += increment;
-  const labels = { meals: "Enjoyed a meal", pats: "Got a friendly pat", pets: "Had a cuddle", fetches: "Played fetch", games: "Played a game", wins: "Won a challenge", breaks: "Took a break together" };
+  const labels = { meals: "Enjoyed a meal", pats: "Got a friendly pat", pets: "Had a cuddle", fetches: "Played fetch", games: "Played a game", wins: "Won a challenge", breaks: "Took a break together", tasks: "Ran an errand on the web" };
   profile.journal.push({ at: Date.now(), text: labels[kind] + (increment > 1 ? ` ×${increment}` : "") });
   profile.journal = profile.journal.slice(-40);
   return writeSettings({ profiles: { [id]: profile }, stats: { [kind]: settings.stats[kind] + increment } });

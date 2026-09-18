@@ -1,0 +1,142 @@
+textarea {
+  width: 100%;
+  font: inherit;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  resize: vertical;
+  user-select: text;
+}
+.pair.tight {
+  gap: 4px;
+}
+.pair.tight input {
+  flex: 1;
+}
+.pair.tight button {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+}
+.actions {
+  align-items: center;
+  margin-top: 6px;
+}
+.actions > * {
+  flex: 0 0 auto;
+}
+.actions .hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1c1824;
+  font-weight: 600;
+}
+button.mini {
+  padding: 1px 8px;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow: auto;
+  font-size: 12.5px;
+}
+.log li {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 6px;
+  padding: 4px 0;
+  border-top: 1px solid var(--line);
+  word-break: break-word;
+}
+.log li:first-child {
+  border-top: 0;
+}
+.log li.tool {
+  color: var(--ink);
+}
+.log li.result,
+.log li.note {
+  color: var(--muted);
+}
+.log li.error {
+  color: var(--danger);
+}
+.log li.empty {
+  color: var(--muted);
+  display: block;
+}
+.answer {
+  white-space: pre-wrap;
+  line-height: 1.5;
+  user-select: text;
+  font-size: 13.5px;
+}
+.answer a {
+  color: var(--accent);
+  word-break: break-all;
+}
+.history li {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  cursor: pointer;
+}
+.history li:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.history .meta {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.history .status-error {
+  color: var(--danger);
+}
+.keys li {
+  flex-wrap: wrap;
+}
+.keys .name {
+  width: 80px;
+  font-weight: 600;
+}
+.keys input[type="password"] {
+  flex: 1;
+  min-width: 140px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+}
+.keys .state {
+  font-size: 11.5px;
+  color: var(--muted);
+  width: 100%;
+}
+.keys .state.ok {
+  color: #2a9d8f;
+}
+#examples button {
+  font-size: 12.5px;
+  padding: 4px 9px;
+  text-align: left;
+}
+code {
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 12px;
+}

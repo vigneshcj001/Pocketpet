@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PocketPet tasks</title>
+    <link rel="stylesheet" href="settings.css" />
+    <link rel="stylesheet" href="tasks.css" />
+  </head>
+  <body>
+    <!-- "Ask me to do something": a task goes to the Rust agent, which runs an
+         LLM with web search + page reading and streams progress back as
+         pet://task events. Keys never touch this page: they go straight to
+         Credential Manager through agent_set_key. -->
+    <header>
+      <h1>Ask me to do something</h1>
+      <nav id="tabs" role="tablist">
+        <button role="tab" data-tab="run" aria-selected="true">Task</button>
+        <button role="tab" data-tab="history">History</button>
+        <button role="tab" data-tab="providers">Providers &amp; keys</button>
+      </nav>
+    </header>
+
+    <main>
+      <!-- ================= Task ================= -->
+      <section data-panel="run">
+        <div class="card">
+          <div class="pair">
+            <label>Provider <select id="provider"></select></label>
+            <label>Model
+              <div class="pair tight">
+                <input type="text" id="model" list="modelList" placeholder="model id" />
+                <datalist id="modelList"></datalist>
+                <button type="button" id="refreshModels" title="Fetch the provider's model list">↻</button>
+              </div>
+            </label>
+          </div>
+          <p class="hint" id="providerHint"></p>
+          <label>What should I do?
+            <textarea id="task" rows="3" placeholder="e.g. Find the cheapest 3-star hotel in Chennai near Marina Beach for 2 nights next weekend, with links."></textarea>
+          </label>
+          <div class="pair actions">
+            <button type="button" id="run" class="primary">Go</button>
+            <button type="button" id="cancel" disabled>Cancel</button>
+            <span class="hint" id="status"></span>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Progress</h2>
+          <ol id="log" class="log" aria-live="polite"></ol>
+        </div>
+        <div class="card" id="answerCard" hidden>
+          <h2>Answer <button type="button" id="copy" class="mini">Copy</button></h2>
+          <div id="answer" class="answer"></div>
+        </div>
+        <div class="card">
+          <h2>Try</h2>
+          <div class="chips" id="examples"></div>
+        </div>
+      </section>
+
+      <!-- ================= History ================= -->
+      <section data-panel="history" hidden>
+        <div class="card">
+          <h2>Recent tasks</h2>
+          <ul id="history" class="list history"></ul>
+          <button type="button" id="clearHistory">Clear history</button>
+        </div>
+      </section>
+
+      <!-- ================= Providers ================= -->
+      <section data-panel="providers" hidden>
+        <div class="card">
+          <h2>API keys</h2>
+          <p class="hint">Stored in Windows Credential Manager under <code>PocketPet/&lt;provider&gt;</code>. Never written to settings or backups. Ollama and custom local servers need no key.</p>
+          <ul id="keys" class="list keys"></ul>
+        </div>
+        <div class="card">
+          <h2>Local / custom servers</h2>
+          <label>Ollama URL <input type="text" id="url_ollama" placeholder="http://localhost:11434/v1" /></label>
+          <label>Custom OpenAI-compatible URL <input type="text" id="url_custom" placeholder="http://localhost:1234/v1 (LM Studio, vLLM, llama.cpp…)" /></label>
+        </div>
+        <div class="card">
+          <h2>Behaviour</h2>
+          <label>Max steps per task <span class="hint" id="maxTurnsHint"></span>
+            <input type="range" id="maxTurns" min="4" max="40" step="2" />
+          </label>
+          <label class="row"><input type="checkbox" id="narrate" /> Pet narrates progress in its bubble</label>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="tasks.js"></script>
+  </body>
+</html>
