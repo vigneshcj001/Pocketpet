@@ -234,3 +234,10 @@ src-tauri/
   will walk over and the press will silently do nothing.
 - Pets walk on window *top edges* only — no wall-climbing or ceiling-hanging
   yet.
+
+## Documents
+
+- [Business requirements](docs/BUSINESS_REQUIREMENTS.md) — vision, goals, scope, business rules, success criteria, risks.
+- [Technical requirements](docs/TECHNICAL_REQUIREMENTS.md) — platform, architecture, functional and non-functional requirements, interfaces, build and release.
+- [App flow](docs/APP_FLOW.md) — launch, frame loop, interaction map, care loop, breaks/focus, task agent sequence, data locations.
+- [Agents](docs/AGENTS.md) — the task agent (providers, prompt, tools, guardrails, recovery, events), browser driver, rule-based pet behaviours, narration, how to extend.
