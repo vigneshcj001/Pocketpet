@@ -67,11 +67,16 @@ Built with Tauri v2 (Rust + WebView2). No Electron, no npm, no bundler.
   asleep, or in low-power mode.
 - **Backup & restore.** Export everything to a JSON file and import it on
   another machine.
-- **Ask me to do something.** A task agent: type an errand ("find the
-  cheapest…", "compare…", "summarise today's…") and the pet runs it with web
-  search and page reading, narrates progress, and files the answer. Works with
-  Claude (Anthropic web tools), OpenAI, Groq, Gemini, Ollama, or any
-  OpenAI-compatible local server. API keys live in Windows Credential Manager.
+- **Ask me to do something.** A task agent: type (or speak) an errand and the
+  pet runs it — web search, page reading, and a real browser window it drives
+  itself (its own profile, separate from yours). It plans in steps, narrates,
+  sits on the browser and points at what it clicks, then files the answer.
+  Anything that pays, books, logs in, sends or deletes stops for your approval
+  in the Tasks window; it never types passwords or card numbers. Allowed-site
+  list, daily spend cap, pause/take-over, memory of your preferences, voice in
+  (Whisper) and read-aloud. Works with Claude (Anthropic web tools), OpenAI,
+  Groq, Gemini, DeepSeek, Ollama, or any OpenAI-compatible local server. API
+  keys live in Windows Credential Manager.
 
 ## How the tricky parts work
 

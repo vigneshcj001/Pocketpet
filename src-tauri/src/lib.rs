@@ -3,6 +3,7 @@
 //! and press their caption buttons.
 
 mod agent;
+mod browser;
 mod extras;
 mod startup;
 mod titlebar;
@@ -84,6 +85,8 @@ struct Shortcuts {
     feed: String,
     play: String,
     settings: String,
+    #[serde(default)]
+    tasks: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -289,6 +292,7 @@ fn set_hotkeys(shortcuts: Shortcuts) -> Vec<String> {
         ("feed", &shortcuts.feed, HotkeyAction::Feed),
         ("play", &shortcuts.play, HotkeyAction::Play),
         ("settings", &shortcuts.settings, HotkeyAction::Settings),
+        ("tasks", &shortcuts.tasks, HotkeyAction::Tasks),
     ] {
         if text.trim().is_empty() {
             continue; // unbound on purpose
@@ -398,6 +402,49 @@ fn agent_cancel(id: String, tasks: State<'_, Arc<agent::Tasks>>) -> bool {
 }
 
 #[tauri::command]
+fn agent_pause(id: String, paused: bool, tasks: State<'_, Arc<agent::Tasks>>) -> bool {
+    agent::set_paused(&tasks, &id, paused)
+}
+
+/// Answer a pending ask_user / confirmation for a task.
+#[tauri::command]
+fn agent_reply(id: String, text: String, tasks: State<'_, Arc<agent::Tasks>>) -> bool {
+    agent::reply(&tasks, &id, &text)
+}
+
+#[tauri::command]
+async fn agent_close_browser(tasks: State<'_, Arc<agent::Tasks>>) -> Result<bool, String> {
+    let mut g = tasks.browser.lock().await;
+    if let Some(b) = g.take() {
+        b.close().await;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+#[tauri::command]
+fn memory_read() -> String {
+    agent::memory_read()
+}
+
+#[tauri::command]
+fn memory_write(text: String) -> Result<(), String> {
+    agent::memory_write(&text)
+}
+
+#[tauri::command]
+async fn agent_transcribe(audio_b64: String, mime: String) -> Result<String, String> {
+    agent::transcribe(&audio_b64, &mime).await
+}
+
+/// HWND + rect of the top-level window belonging to a process, for the pet to
+/// go and sit on the browser.
+#[tauri::command]
+fn window_for_pid(pid: u32) -> Option<WindowInfo> {
+    win::window_for_pid(pid)
+}
+
+#[tauri::command]
 async fn open_tasks(app: AppHandle) -> Result<(), String> {
     if let Some(existing) = app.get_webview_window("tasks") {
         let _ = existing.unminimize();
@@ -502,6 +549,12 @@ fn on_hotkey(app: &AppHandle, action: startup::HotkeyAction) {
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
                 let _ = open_settings(app).await;
+            });
+        }
+        Tasks => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = open_tasks(app).await;
             });
         }
     }
@@ -783,6 +836,13 @@ pub fn run() {
             agent_models,
             agent_run,
             agent_cancel,
+            agent_pause,
+            agent_reply,
+            agent_close_browser,
+            memory_read,
+            memory_write,
+            agent_transcribe,
+            window_for_pid,
             open_tasks,
             open_external,
             quit_app,

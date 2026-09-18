@@ -3,7 +3,7 @@
 export const STORAGE_KEY = "pocketpet";
 export const BUILTIN_IDS = ["cat", "duck", "panda", "penguin"];
 export const ACTIVITY_KEYS = ["meals", "pats", "pets", "fetches", "games", "wins", "breaks", "tasks"];
-export const AGENT_PROVIDERS = ["claude", "openai", "groq", "gemini", "ollama", "custom"];
+export const AGENT_PROVIDERS = ["claude", "openai", "groq", "gemini", "deepseek", "ollama", "custom"];
 export const MAX_TASK_HISTORY = 50;
 export const DEFAULTS = {
   pet: "cat", companion: "", size: "medium", speed: "normal",
@@ -16,9 +16,13 @@ export const DEFAULTS = {
   avoidArea: { enabled: false, x: 35, y: 10, w: 30, h: 45 },
   breakMins: 0, breakDuration: 5, breakSnooze: 5, breakCycles: false, showCountdown: true,
   pauseHungerOffline: true, showHunger: true, toy: "ball", speechSize: 14, speechDuration: 100, lowPower: false,
-  shortcuts: { toggle: "Ctrl+Alt+P", feed: "Ctrl+Alt+F", play: "Ctrl+Alt+B", settings: "Ctrl+Alt+S" },
+  shortcuts: { toggle: "Ctrl+Alt+P", feed: "Ctrl+Alt+F", play: "Ctrl+Alt+B", settings: "Ctrl+Alt+S", tasks: "Ctrl+Alt+T" },
   /** Task agent: which provider/model to use. Keys are NOT here (Credential Manager). */
-  agent: { provider: "claude", models: {}, baseUrls: {}, maxTurns: 20, narrate: true },
+  agent: {
+    provider: "claude", models: {}, baseUrls: {}, maxTurns: 24, narrate: true,
+    browser: true, allowedSites: [], dailyCapUsd: 2, speak: false, voice: true,
+    spend: { date: "", usd: 0 },
+  },
   /** Recent tasks, newest last. */
   tasks: [],
 };
@@ -125,8 +129,18 @@ export function normalizeSettings(input) {
   }
   const agent = object(raw.agent);
   next.agent.provider = choice(agent.provider, AGENT_PROVIDERS, "claude");
-  next.agent.maxTurns = Math.round(number(agent.maxTurns, 20, 4, 40));
+  next.agent.maxTurns = Math.round(number(agent.maxTurns, 24, 4, 60));
   next.agent.narrate = typeof agent.narrate === "boolean" ? agent.narrate : true;
+  next.agent.browser = typeof agent.browser === "boolean" ? agent.browser : true;
+  next.agent.speak = typeof agent.speak === "boolean" ? agent.speak : false;
+  next.agent.voice = typeof agent.voice === "boolean" ? agent.voice : true;
+  next.agent.dailyCapUsd = number(agent.dailyCapUsd, 2, 0, 1000);
+  next.agent.allowedSites = (Array.isArray(agent.allowedSites) ? agent.allowedSites : [])
+    .map((s) => shortText(s, 120).toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, ""))
+    .filter((s) => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(s))
+    .slice(0, 100);
+  const spend = object(agent.spend);
+  next.agent.spend = { date: shortText(spend.date, 10), usd: number(spend.usd, 0, 0, 1e6) };
   for (const id of AGENT_PROVIDERS) {
     const model = shortText(object(agent.models)[id], 120);
     if (model) next.agent.models[id] = model;

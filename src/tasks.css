@@ -140,3 +140,65 @@ code {
   font-family: Consolas, "Cascadia Mono", monospace;
   font-size: 12px;
 }
+
+/* --- phase 2+: approvals, plan, screenshot, mic ------------------------------ */
+
+.card.ask {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.card.ask #askText {
+  font-size: 14px;
+  margin: 4px 0 10px;
+  user-select: text;
+}
+.plan {
+  margin: 0;
+  padding-left: 22px;
+  font-size: 13px;
+}
+.plan li {
+  padding: 3px 0;
+}
+.plan li[data-status="doing"] {
+  font-weight: 600;
+}
+.plan li[data-status="doing"]::marker {
+  color: var(--accent);
+}
+.plan li[data-status="done"] {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.plan li[data-status="skipped"] {
+  color: var(--muted);
+  font-style: italic;
+}
+#shotWrap {
+  margin-top: 8px;
+}
+#shot {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+#mic {
+  flex: 0 0 auto;
+  align-self: stretch;
+  font-size: 18px;
+  padding: 0 12px;
+}
+#mic.recording {
+  background: #e5533c;
+  border-color: #e5533c;
+  color: #fff;
+  animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+#memory, #sites {
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 12.5px;
+}

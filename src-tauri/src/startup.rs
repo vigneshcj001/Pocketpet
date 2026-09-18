@@ -74,6 +74,7 @@ pub enum HotkeyAction {
     Feed = 2,
     Play = 3,
     Settings = 4,
+    Tasks = 5,
 }
 
 impl HotkeyAction {
@@ -83,6 +84,7 @@ impl HotkeyAction {
             2 => Some(Self::Feed),
             3 => Some(Self::Play),
             4 => Some(Self::Settings),
+            5 => Some(Self::Tasks),
             _ => None,
         }
     }

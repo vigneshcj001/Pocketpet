@@ -2059,6 +2059,54 @@ listen("pet://settings", ({ payload }) => reloadSettings(payload));
 
 let taskAnim = null;
 
+let ringTimer = null;
+
+/** Hop onto the browser the agent just opened and watch from its titlebar. */
+async function sitOnBrowser(pid) {
+  if (!pid || state.mode !== "free" || state.dragging) return;
+  const w = await invoke("window_for_pid", { pid }).catch(() => null);
+  if (!w) return;
+  state.mode = "mission";
+  state.antic = null;
+  try {
+    const r = cssRect(w.rect);
+    const tx = clamp(r.x + r.w - SIZE * 1.6, 0, overlayW() - SIZE);
+    const ty = Math.max(0, r.y - SIZE);
+    await moveTo(tx, ty);
+    state.perched = true;
+    state.grounded = true;
+  } finally {
+    state.mode = "free";
+  }
+}
+
+/** Point the paw at a screen position (physical px) and flash the ring there. */
+function pointAt(px, py, what) {
+  const x = toCssX(px);
+  const y = toCssY(py);
+  const r = { x: x - 14, y: y - 14, w: 28, h: 28 };
+  showRing(r);
+  if (state.mode === "free" && !state.dragging) {
+    face(Math.sign(x - footX()) || state.facing);
+    reachAt(r).then(() => setTimeout(resetArm, 350));
+    if (what === "type") setAnim("reach");
+  }
+  clearTimeout(ringTimer);
+  ringTimer = setTimeout(hideRing, 900);
+}
+
+/** Read the answer aloud with the system voice, if the user wants that. */
+function speakAloud(text) {
+  try {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(String(text).replace(/https?:\/\/\S+/g, "link").slice(0, 1200));
+    u.rate = 1.05;
+    speechSynthesis.speak(u);
+  } catch {
+    /* no voices installed */
+  }
+}
+
 function rememberTask(payload, status) {
   const d = payload.detail ?? {};
   if (!d.task) return;
@@ -2072,6 +2120,11 @@ function rememberTask(payload, status) {
     answer: status === "done" ? String(payload.text ?? "") : String(payload.text ?? "").slice(0, 400),
   };
   settings.tasks = [...settings.tasks.filter((t) => t.id !== entry.id), entry].slice(-50);
+  // Daily spend meter (USD estimate from the agent's usage accounting).
+  const usd = Number(d.usd) || 0;
+  const day = new Date().toISOString().slice(0, 10);
+  const prev = settings.agent.spend?.date === day ? settings.agent.spend.usd : 0;
+  settings.agent = { ...settings.agent, spend: { date: day, usd: prev + usd } };
   saveSettings();
   // Tell the Tasks window (and anyone else) that history changed.
   window.__TAURI__.event.emit("pet://settings", { tasks: true }).catch(() => {});
@@ -2089,7 +2142,17 @@ listen("pet://task", ({ payload }) => {
     }
   } else if (kind === "tool") {
     if (narrate) say(text.length > 90 ? text.slice(0, 88) + "…" : text, 2500);
+  } else if (kind === "browser") {
+    if (payload.detail?.pid) sitOnBrowser(payload.detail.pid);
+    else state.perched = false;
+  } else if (kind === "act") {
+    if (payload.detail) pointAt(payload.detail.x, payload.detail.y, text);
+  } else if (kind === "confirm" || kind === "ask") {
+    if (narrate) say(kind === "confirm" ? "Need your okay for this — see the Tasks window." : "Question for you in the Tasks window.", 5000);
+    setAnim("look");
+    playChirp();
   } else if (kind === "answer") {
+    if (settings.agent?.speak) speakAloud(text);
     clearTimeout(taskAnim);
     record("tasks");
     rememberTask(payload, "done");

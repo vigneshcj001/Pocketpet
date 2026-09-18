@@ -9,15 +9,18 @@
   </head>
   <body>
     <!-- "Ask me to do something": a task goes to the Rust agent, which runs an
-         LLM with web search + page reading and streams progress back as
-         pet://task events. Keys never touch this page: they go straight to
-         Credential Manager through agent_set_key. -->
+         LLM with web search, page reading and a real browser, streaming
+         progress back as pet://task events. Anything that spends money, logs in
+         or sends something pauses here for your approval. Keys never touch
+         this page: they go straight to Credential Manager. -->
     <header>
       <h1>Ask me to do something</h1>
       <nav id="tabs" role="tablist">
         <button role="tab" data-tab="run" aria-selected="true">Task</button>
         <button role="tab" data-tab="history">History</button>
+        <button role="tab" data-tab="memory">Memory</button>
         <button role="tab" data-tab="providers">Providers &amp; keys</button>
+        <button role="tab" data-tab="limits">Limits &amp; sites</button>
       </nav>
     </header>
 
@@ -37,22 +40,50 @@
           </div>
           <p class="hint" id="providerHint"></p>
           <label>What should I do?
-            <textarea id="task" rows="3" placeholder="e.g. Find the cheapest 3-star hotel in Chennai near Marina Beach for 2 nights next weekend, with links."></textarea>
+            <div class="pair tight">
+              <textarea id="task" rows="3" placeholder="e.g. Order a margherita pizza from Domino's to my usual address — stop at payment."></textarea>
+              <button type="button" id="mic" title="Hold to talk (or press Win+H to dictate)">🎤</button>
+            </div>
           </label>
           <div class="pair actions">
             <button type="button" id="run" class="primary">Go</button>
+            <button type="button" id="pause" disabled>Pause</button>
             <button type="button" id="cancel" disabled>Cancel</button>
             <span class="hint" id="status"></span>
           </div>
         </div>
-        <div class="card">
-          <h2>Progress</h2>
-          <ol id="log" class="log" aria-live="polite"></ol>
+
+        <!-- Asked something, or waiting for approval -->
+        <div class="card ask" id="askCard" hidden>
+          <h2 id="askTitle">The pet needs you</h2>
+          <p id="askText"></p>
+          <div class="pair" id="askConfirm">
+            <button type="button" id="approve" class="primary">Allow</button>
+            <button type="button" id="deny">Don't</button>
+          </div>
+          <div class="pair tight" id="askReply" hidden>
+            <input type="text" id="replyText" placeholder="Type your answer…" />
+            <button type="button" id="replySend" class="primary">Send</button>
+          </div>
+          <p class="hint">You can also do the step yourself in the browser window, then answer "done".</p>
         </div>
+
+        <div class="card" id="planCard" hidden>
+          <h2>Plan</h2>
+          <ol id="plan" class="plan"></ol>
+        </div>
+
+        <div class="card">
+          <h2>Progress <span class="hint" id="spend"></span></h2>
+          <ol id="log" class="log" aria-live="polite"></ol>
+          <div id="shotWrap" hidden><img id="shot" alt="Latest screenshot from the browser" /></div>
+        </div>
+
         <div class="card" id="answerCard" hidden>
-          <h2>Answer <button type="button" id="copy" class="mini">Copy</button></h2>
+          <h2>Answer <button type="button" id="copy" class="mini">Copy</button> <button type="button" id="speak" class="mini">🔊 Read aloud</button></h2>
           <div id="answer" class="answer"></div>
         </div>
+
         <div class="card">
           <h2>Try</h2>
           <div class="chips" id="examples"></div>
@@ -65,6 +96,20 @@
           <h2>Recent tasks</h2>
           <ul id="history" class="list history"></ul>
           <button type="button" id="clearHistory">Clear history</button>
+        </div>
+      </section>
+
+      <!-- ================= Memory ================= -->
+      <section data-panel="memory" hidden>
+        <div class="card">
+          <h2>What the pet remembers about you</h2>
+          <p class="hint">Facts it saved with "remember" during tasks, plus anything you add. Sent with every task. Kept in <code>%LOCALAPPDATA%\PocketPet\memory.md</code>.</p>
+          <textarea id="memory" rows="12" placeholder="- I'm vegetarian&#10;- Home: 12 Beach Road, Chennai 600001&#10;- Prefer Swiggy over Zomato"></textarea>
+          <div class="pair actions">
+            <button type="button" id="memorySave" class="primary">Save</button>
+            <button type="button" id="memoryClear">Forget everything</button>
+            <span class="hint" id="memoryStatus"></span>
+          </div>
         </div>
       </section>
 
@@ -81,9 +126,33 @@
           <label>Custom OpenAI-compatible URL <input type="text" id="url_custom" placeholder="http://localhost:1234/v1 (LM Studio, vLLM, llama.cpp…)" /></label>
         </div>
         <div class="card">
-          <h2>Behaviour</h2>
+          <h2>Voice</h2>
+          <label class="row"><input type="checkbox" id="voice" /> Microphone button (Whisper via your Groq or OpenAI key)</label>
+          <label class="row"><input type="checkbox" id="speakSetting" /> Pet reads answers aloud</label>
+          <p class="hint">No key for Whisper? Press <kbd>Win</kbd>+<kbd>H</kbd> in the task box to use Windows dictation.</p>
+        </div>
+      </section>
+
+      <!-- ================= Limits & sites ================= -->
+      <section data-panel="limits" hidden>
+        <div class="card">
+          <h2>Browser</h2>
+          <label class="row"><input type="checkbox" id="browserOn" /> Let the pet drive a browser window (its own profile, separate from yours)</label>
+          <p class="hint">It always stops and asks before paying, booking, logging in, sending or deleting. It never types passwords or card numbers — you do that step in its window.</p>
+          <button type="button" id="closeBrowser">Close the pet's browser</button>
+        </div>
+        <div class="card">
+          <h2>Allowed sites</h2>
+          <p class="hint">One domain per line. Empty = anywhere. Outside the list it asks first.</p>
+          <textarea id="sites" rows="5" placeholder="amazon.in&#10;swiggy.com&#10;makemytrip.com"></textarea>
+          <p class="hint" id="sitesStatus"></p>
+        </div>
+        <div class="card">
+          <h2>Spend</h2>
+          <label>Daily cap on model spend (USD, 0 = no cap) <input type="number" id="dailyCap" min="0" max="1000" step="0.5" /></label>
+          <p class="hint" id="spendToday"></p>
           <label>Max steps per task <span class="hint" id="maxTurnsHint"></span>
-            <input type="range" id="maxTurns" min="4" max="40" step="2" />
+            <input type="range" id="maxTurns" min="4" max="60" step="2" />
           </label>
           <label class="row"><input type="checkbox" id="narrate" /> Pet narrates progress in its bubble</label>
         </div>

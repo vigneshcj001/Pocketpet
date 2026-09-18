@@ -246,6 +246,19 @@ pub fn on_battery() -> bool {
         && status.ACLineStatus == 0 && status.BatteryFlag != 128 && status.BatteryFlag != 255
 }
 
+/// The largest visible top-level window owned by `pid` (a browser we launched).
+pub fn window_for_pid(pid: u32) -> Option<WindowInfo> {
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
+    list_windows()
+        .into_iter()
+        .filter(|w| {
+            let mut owner = 0u32;
+            unsafe { GetWindowThreadProcessId(HWND(w.hwnd as *mut c_void), Some(&mut owner)) };
+            owner == pid
+        })
+        .max_by_key(|w| w.rect.w as i64 * w.rect.h as i64)
+}
+
 /// Look a window up by HWND, with the same filtering as `list_windows` so a
 /// stale or hidden handle comes back as `None` rather than a ghost.
 pub fn window_by_hwnd(hwnd: isize) -> Option<WindowInfo> {
