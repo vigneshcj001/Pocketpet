@@ -16,12 +16,17 @@ export const DEFAULTS = {
   avoidArea: { enabled: false, x: 35, y: 10, w: 30, h: 45 },
   breakMins: 0, breakDuration: 5, breakSnooze: 5, breakCycles: false, showCountdown: true,
   pauseHungerOffline: true, showHunger: true, toy: "ball", speechSize: 14, speechDuration: 100, lowPower: false,
-  shortcuts: { toggle: "Ctrl+Alt+P", feed: "Ctrl+Alt+F", play: "Ctrl+Alt+B", settings: "Ctrl+Alt+S", tasks: "Ctrl+Alt+T" },
+  shortcuts: {
+    toggle: "Ctrl+Alt+P", feed: "Ctrl+Alt+F", play: "Ctrl+Alt+B", settings: "Ctrl+Alt+S", tasks: "Ctrl+Alt+T",
+    kill: "Ctrl+Alt+X", voice: "Ctrl+Alt+V", clip: "Ctrl+Alt+D",
+  },
   /** Task agent: which provider/model to use. Keys are NOT here (Credential Manager). */
   agent: {
     provider: "claude", models: {}, baseUrls: {}, maxTurns: 24, narrate: true,
     browser: true, allowedSites: [], dailyCapUsd: 2, speak: false, voice: true,
     spend: { date: "", usd: 0 },
+    purchaseCap: 0, digestModel: "", stream: true, siteRules: {}, voiceEngine: "windows",
+    schedules: [], updateCheck: true, lastUpdateCheck: 0,
   },
   /** Recent tasks, newest last. */
   tasks: [],
@@ -141,6 +146,27 @@ export function normalizeSettings(input) {
     .slice(0, 100);
   const spend = object(agent.spend);
   next.agent.spend = { date: shortText(spend.date, 10), usd: number(spend.usd, 0, 0, 1e6) };
+  next.agent.purchaseCap = number(agent.purchaseCap, 0, 0, 1e7);
+  next.agent.digestModel = shortText(agent.digestModel, 120);
+  next.agent.stream = typeof agent.stream === "boolean" ? agent.stream : true;
+  next.agent.voiceEngine = choice(agent.voiceEngine, ["windows", "whisper"], "windows");
+  next.agent.updateCheck = typeof agent.updateCheck === "boolean" ? agent.updateCheck : true;
+  next.agent.lastUpdateCheck = number(agent.lastUpdateCheck, 0, 0, Date.now());
+  for (const [domain, rule] of Object.entries(object(agent.siteRules)).slice(0, 200)) {
+    const d = shortText(domain, 120).toLowerCase();
+    if (/^[a-z0-9.-]+\.[a-z]{2,}$/.test(d) && ["allow", "ask", "never"].includes(rule)) next.agent.siteRules[d] = rule;
+  }
+  next.agent.schedules = (Array.isArray(agent.schedules) ? agent.schedules : []).slice(0, 20).map((raw) => {
+    const s = object(raw);
+    return {
+      id: shortText(s.id, 40) || Math.random().toString(36).slice(2, 10),
+      task: shortText(s.task, 600),
+      time: time(s.time, "09:00"),
+      days: choice(s.days, ["daily", "weekdays", "weekends"], "daily"),
+      enabled: typeof s.enabled === "boolean" ? s.enabled : true,
+      lastRun: shortText(s.lastRun, 10),
+    };
+  }).filter((s) => s.task);
   for (const id of AGENT_PROVIDERS) {
     const model = shortText(object(agent.models)[id], 120);
     if (model) next.agent.models[id] = model;
@@ -179,6 +205,7 @@ export function writeSettings(patch) {
       ...a,
       models: { ...previous.agent.models, ...object(a.models) },
       baseUrls: { ...previous.agent.baseUrls, ...object(a.baseUrls) },
+      siteRules: a.siteRules === null ? {} : { ...previous.agent.siteRules, ...object(a.siteRules) },
     };
   }
   const next = normalizeSettings(raw);

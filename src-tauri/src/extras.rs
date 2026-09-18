@@ -155,3 +155,103 @@ fn chrono_like_stamp() -> String {
     let t = unsafe { GetLocalTime() };
     format!("{:04}{:02}{:02}-{:02}{:02}", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute)
 }
+
+// --- clipboard ----------------------------------------------------------------
+
+/// Plain text currently on the clipboard, if any.
+pub fn clipboard_text() -> Option<String> {
+    use windows::Win32::System::DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard};
+    use windows::Win32::Foundation::HGLOBAL;
+    use windows::Win32::System::Memory::{GlobalLock, GlobalUnlock};
+    const CF_UNICODETEXT: u32 = 13;
+    unsafe {
+        if OpenClipboard(None).is_err() {
+            return None;
+        }
+        let out = GetClipboardData(CF_UNICODETEXT).ok().and_then(|h| {
+            let hg = HGLOBAL(h.0 as *mut _);
+            let p = GlobalLock(hg) as *const u16;
+            if p.is_null() {
+                return None;
+            }
+            let mut len = 0;
+            while *p.add(len) != 0 && len < 100_000 {
+                len += 1;
+            }
+            let text = String::from_utf16_lossy(std::slice::from_raw_parts(p, len));
+            let _ = GlobalUnlock(hg);
+            Some(text)
+        });
+        let _ = CloseClipboard();
+        out.filter(|t| !t.trim().is_empty())
+    }
+}
+
+// --- updates ------------------------------------------------------------------
+// GitHub Releases is the update feed: the newest release's `*-setup.exe` asset.
+
+const RELEASES_API: &str = "https://api.github.com/repos/vigneshcj001/Pocketpet/releases/latest";
+
+#[derive(serde::Serialize)]
+pub struct UpdateInfo {
+    pub current: String,
+    pub latest: String,
+    pub available: bool,
+    pub url: String,
+    pub notes: String,
+}
+
+fn version_tuple(v: &str) -> (u64, u64, u64) {
+    let mut it = v.trim().trim_start_matches('v').split(|c: char| !c.is_ascii_digit()).filter(|s| !s.is_empty()).map(|s| s.parse().unwrap_or(0));
+    (it.next().unwrap_or(0), it.next().unwrap_or(0), it.next().unwrap_or(0))
+}
+
+pub async fn check_update() -> Result<UpdateInfo, String> {
+    let current = env!("CARGO_PKG_VERSION").to_string();
+    let client = reqwest::Client::builder().user_agent("PocketPet").build().map_err(|e| e.to_string())?;
+    let resp = client.get(RELEASES_API).send().await.map_err(|e| e.to_string())?;
+    if resp.status().as_u16() == 404 {
+        return Ok(UpdateInfo { current: current.clone(), latest: current, available: false, url: String::new(), notes: "No releases published yet.".into() });
+    }
+    let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let latest = v.get("tag_name").and_then(|t| t.as_str()).unwrap_or("").to_string();
+    let url = v
+        .get("assets")
+        .and_then(|a| a.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|a| a.get("browser_download_url").and_then(|u| u.as_str()))
+        .find(|u| u.ends_with("-setup.exe"))
+        .unwrap_or("")
+        .to_string();
+    let notes = v.get("body").and_then(|b| b.as_str()).unwrap_or("").chars().take(1500).collect();
+    let available = !latest.is_empty() && !url.is_empty() && version_tuple(&latest) > version_tuple(&current);
+    Ok(UpdateInfo { current, latest, available, url, notes })
+}
+
+/// Download the installer to %TEMP% and start it. The caller exits the app so
+/// the installer can replace the running exe.
+pub async fn download_update(url: &str) -> Result<std::path::PathBuf, String> {
+    if !url.starts_with("https://github.com/") && !url.starts_with("https://objects.githubusercontent.com/") {
+        return Err("Refusing to download an installer from outside GitHub.".into());
+    }
+    let client = reqwest::Client::builder().user_agent("PocketPet").build().map_err(|e| e.to_string())?;
+    let bytes = client.get(url).send().await.map_err(|e| e.to_string())?.bytes().await.map_err(|e| e.to_string())?;
+    if bytes.len() < 100_000 {
+        return Err("Downloaded file is too small to be the installer.".into());
+    }
+    let path = std::env::temp_dir().join("PocketPet-update-setup.exe");
+    std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+#[cfg(test)]
+mod update_tests {
+    use super::version_tuple;
+    #[test]
+    fn versions_compare_numerically() {
+        assert!(version_tuple("v0.2.0") > version_tuple("0.1.9"));
+        assert!(version_tuple("1.0.0") > version_tuple("v0.10.5"));
+        assert_eq!(version_tuple("v0.1.0"), version_tuple("0.1.0"));
+    }
+}

@@ -8,6 +8,8 @@ export default {
   /** What this animal eats; shown as the food item and in menus. */
   /** Body fills, darkest-to-lightest offsets relative to the first; recoloured by the colour picker. */
   tint: ["#f5a94c", "#f9b75c", "#d3812f", "#e8963c", "#e08b30", "#ffdcb0", "#ffe6c4"],
+  /** Read-aloud voice: speechSynthesis pitch and rate. */
+  voice: { pitch: 1.3, rate: 1.05 },
   food: "🐟",
   paw: { x: 0.7, y: 0.6 },
   svg: `

@@ -3,3 +3,6 @@
 node_modules/
 *.log
 .DS_Store
+
+# Installers belong on GitHub Releases, not in the repo
+*.exe

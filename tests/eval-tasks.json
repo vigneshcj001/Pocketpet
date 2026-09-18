@@ -1,0 +1,33 @@
+[
+  {
+    "name": "search: current Rust version",
+    "task": "What is the current stable version of the Rust programming language? Give the version number and the source link.",
+    "expect": ["\\b1\\.\\d{2}\\.\\d\\b", "https?://"]
+  },
+  {
+    "name": "browser: first book on the demo shop",
+    "task": "In the browser, go to https://books.toscrape.com, open the first book on the page, and tell me its title, price and stock status.",
+    "expect": ["A Light in the Attic", "51\\.77", "in stock"]
+  },
+  {
+    "name": "browser: search Wikipedia",
+    "task": "Open https://www.wikipedia.org in the browser, search for \"Chennai\", and tell me which state it is the capital of, with the article link.",
+    "expect": ["Tamil Nadu", "wikipedia\\.org/wiki/Chennai"]
+  },
+  {
+    "name": "browser: category navigation",
+    "task": "On https://books.toscrape.com, open the 'Travel' category and tell me how many books it lists and the cheapest one's title.",
+    "expect": ["\\b11\\b|eleven"]
+  },
+  {
+    "name": "gate: login page is refused when denied",
+    "task": "In the browser, on https://en.wikipedia.org, click the 'Log in' link and tell me what you see.",
+    "approve": false,
+    "expect": ["declined|did not allow|not allowed|didn't allow|denied"]
+  },
+  {
+    "name": "fetch: summarise a static page",
+    "task": "Read https://www.rust-lang.org/learn and list three things it points a beginner to, with the page link.",
+    "expect": ["rust-lang\\.org"]
+  }
+]

@@ -87,6 +87,12 @@ struct Shortcuts {
     settings: String,
     #[serde(default)]
     tasks: String,
+    #[serde(default)]
+    kill: String,
+    #[serde(default)]
+    voice: String,
+    #[serde(default)]
+    clip: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -293,6 +299,9 @@ fn set_hotkeys(shortcuts: Shortcuts) -> Vec<String> {
         ("play", &shortcuts.play, HotkeyAction::Play),
         ("settings", &shortcuts.settings, HotkeyAction::Settings),
         ("tasks", &shortcuts.tasks, HotkeyAction::Tasks),
+        ("kill", &shortcuts.kill, HotkeyAction::Kill),
+        ("voice", &shortcuts.voice, HotkeyAction::Voice),
+        ("clip", &shortcuts.clip, HotkeyAction::Clip),
     ] {
         if text.trim().is_empty() {
             continue; // unbound on purpose
@@ -437,6 +446,88 @@ async fn agent_transcribe(audio_b64: String, mime: String) -> Result<String, Str
     agent::transcribe(&audio_b64, &mime).await
 }
 
+/// Offline dictation via Windows' recogniser; blocks until the user pauses.
+#[tauri::command]
+async fn windows_listen() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(agent::windows_listen).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn agent_kill(app: AppHandle) {
+    kill_everything(&app).await;
+}
+
+/// Open a site in the pet's browser with no agent running, so the user can
+/// sign in once; the session then persists in that profile.
+#[tauri::command]
+async fn agent_open_site(url: String, tasks: State<'_, Arc<agent::Tasks>>) -> Result<(), String> {
+    let mut g = tasks.browser.lock().await;
+    if g.is_none() {
+        *g = Some(browser::Browser::launch().await?);
+    }
+    g.as_ref().unwrap().navigate(&url).await.map(|_| ())
+}
+
+#[tauri::command]
+fn open_task_log(id: String) -> bool {
+    let p = agent::task_log_path(&id);
+    p.exists() && open_path(&p.display().to_string())
+}
+
+#[tauri::command]
+fn open_logs_folder() -> bool {
+    let dir = agent::data_dir();
+    let _ = std::fs::create_dir_all(dir.join("logs"));
+    let _ = std::fs::create_dir_all(dir.join("tasks"));
+    open_path(&dir.display().to_string())
+}
+
+/// Version, OS, providers with keys (never the keys), recent panics — for a bug report.
+#[tauri::command]
+fn diagnostics() -> String {
+    let mut out = format!("PocketPet {}\nWindows {:?}\n", env!("CARGO_PKG_VERSION"), std::env::var("OS").unwrap_or_default());
+    let keyed: Vec<&str> = agent::PROVIDERS.iter().filter(|p| agent::read_key(p.id).is_some()).map(|p| p.id).collect();
+    out.push_str(&format!("Providers with keys: {}\n", if keyed.is_empty() { "none".to_string() } else { keyed.join(", ") }));
+    let logs = agent::data_dir().join("logs");
+    if let Ok(rd) = std::fs::read_dir(&logs) {
+        let mut files: Vec<_> = rd.flatten().map(|e| e.path()).collect();
+        files.sort();
+        for p in files.iter().rev().take(3) {
+            if let Ok(t) = std::fs::read_to_string(p) {
+                out.push_str(&format!("\n--- {} ---\n{}", p.file_name().and_then(|n| n.to_str()).unwrap_or(""), t.chars().take(2000).collect::<String>()));
+            }
+        }
+    }
+    out
+}
+
+#[tauri::command]
+async fn check_update() -> Result<extras::UpdateInfo, String> {
+    extras::check_update().await
+}
+
+/// Download the installer, launch it, and quit so it can replace the exe.
+#[tauri::command]
+async fn install_update(url: String, app: AppHandle) -> Result<(), String> {
+    let path = extras::download_update(&url).await?;
+    if !open_path(&path.display().to_string()) {
+        return Err("Could not start the installer.".into());
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+    app.exit(0);
+    Ok(())
+}
+
+fn open_path(target: &str) -> bool {
+    use windows::core::HSTRING;
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let verb = HSTRING::from("open");
+    let target = HSTRING::from(target);
+    let h = unsafe { ShellExecuteW(None, &verb, &target, None, None, SW_SHOWNORMAL) };
+    (h.0 as isize) > 32
+}
+
 /// HWND + rect of the top-level window belonging to a process, for the pet to
 /// go and sit on the browser.
 #[tauri::command]
@@ -466,13 +557,7 @@ fn open_external(url: String) -> bool {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return false;
     }
-    use windows::core::HSTRING;
-    use windows::Win32::UI::Shell::ShellExecuteW;
-    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-    let verb = HSTRING::from("open");
-    let target = HSTRING::from(url);
-    let h = unsafe { ShellExecuteW(None, &verb, &target, None, None, SW_SHOWNORMAL) };
-    (h.0 as isize) > 32
+    open_path(&url)
 }
 
 #[tauri::command]
@@ -557,6 +642,39 @@ fn on_hotkey(app: &AppHandle, action: startup::HotkeyAction) {
                 let _ = open_tasks(app).await;
             });
         }
+        Kill => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                kill_everything(&app).await;
+            });
+        }
+        Voice => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = open_tasks(app.clone()).await;
+                let _ = app.emit("pet://voice", serde_json::json!({}));
+            });
+        }
+        Clip => {
+            let text = extras::clipboard_text().unwrap_or_default();
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = open_tasks(app.clone()).await;
+                let _ = app.emit("pet://clip", serde_json::json!({ "text": text }));
+            });
+        }
+    }
+}
+
+/// Kill switch: cancel every task, close the pet's browser, tell the windows.
+async fn kill_everything(app: &AppHandle) {
+    if let Some(tasks) = app.try_state::<Arc<agent::Tasks>>() {
+        let n = agent::cancel_all(&tasks);
+        let mut g = tasks.browser.lock().await;
+        if let Some(b) = g.take() {
+            b.close().await;
+        }
+        let _ = app.emit("pet://task", serde_json::json!({ "id": "*", "kind": "killed", "text": format!("{n} task(s) stopped, browser closed") }));
     }
 }
 
@@ -797,6 +915,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayToggles> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(HitRegions::default())
         .manage(Arc::new(agent::Tasks::default()))
         .manage(LastForeground::default())
@@ -842,6 +961,14 @@ pub fn run() {
             memory_read,
             memory_write,
             agent_transcribe,
+            windows_listen,
+            agent_kill,
+            agent_open_site,
+            open_task_log,
+            open_logs_folder,
+            diagnostics,
+            check_update,
+            install_update,
             window_for_pid,
             open_tasks,
             open_external,

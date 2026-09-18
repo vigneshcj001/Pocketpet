@@ -75,6 +75,9 @@ pub enum HotkeyAction {
     Play = 3,
     Settings = 4,
     Tasks = 5,
+    Kill = 6,
+    Voice = 7,
+    Clip = 8,
 }
 
 impl HotkeyAction {
@@ -85,6 +88,9 @@ impl HotkeyAction {
             3 => Some(Self::Play),
             4 => Some(Self::Settings),
             5 => Some(Self::Tasks),
+            6 => Some(Self::Kill),
+            7 => Some(Self::Voice),
+            8 => Some(Self::Clip),
             _ => None,
         }
     }

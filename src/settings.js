@@ -126,7 +126,8 @@ function fill() {
   $("avoidY").value = a.y;
   $("avoidW").value = a.w;
   $("avoidH").value = a.h;
-  for (const key of Object.keys(settings.shortcuts)) $(`sc_${key}`).value = settings.shortcuts[key];
+  for (const key of Object.keys(settings.shortcuts)) if ($(`sc_${key}`)) $(`sc_${key}`).value = settings.shortcuts[key];
+  $("updateCheck").checked = settings.agent.updateCheck;
   hints();
   paintAvoidPreview();
   renderPets();
@@ -413,6 +414,44 @@ for (const key of Object.keys(DEFAULTS.shortcuts)) {
     save({ shortcuts: { [key]: combo } });
   });
 }
+
+// --- updates & diagnostics --------------------------------------------------------
+
+let pendingUpdate = null;
+$("checkUpdate").addEventListener("click", async () => {
+  $("updateStatus").textContent = "Checking…";
+  try {
+    const info = await invoke("check_update");
+    pendingUpdate = info.available ? info : null;
+    $("installUpdate").hidden = !info.available;
+    $("updateStatus").textContent = info.available
+      ? `Version ${info.latest} is available (you have ${info.current}).${info.notes ? " " + info.notes.slice(0, 300) : ""}`
+      : `You're on ${info.current}. ${info.notes || "No newer release."}`;
+    save({ agent: { lastUpdateCheck: Date.now() } });
+  } catch (err) {
+    $("updateStatus").textContent = `Couldn't check: ${err}`;
+  }
+});
+$("installUpdate").addEventListener("click", async () => {
+  if (!pendingUpdate) return;
+  $("updateStatus").textContent = "Downloading… PocketPet will close and the installer will open.";
+  try {
+    await invoke("install_update", { url: pendingUpdate.url });
+  } catch (err) {
+    $("updateStatus").textContent = `Update failed: ${err}`;
+  }
+});
+$("updateCheck").addEventListener("input", () => save({ agent: { updateCheck: $("updateCheck").checked } }));
+$("openLogs").addEventListener("click", () => invoke("open_logs_folder").catch(() => {}));
+$("copyDiag").addEventListener("click", async () => {
+  try {
+    const text = await invoke("diagnostics");
+    await navigator.clipboard.writeText(text);
+    $("diagStatus").textContent = "Copied — paste it into your bug report.";
+  } catch (err) {
+    $("diagStatus").textContent = `Couldn't copy: ${err}`;
+  }
+});
 
 $("resetShortcuts").addEventListener("click", () => {
   save({ shortcuts: { ...DEFAULTS.shortcuts } });

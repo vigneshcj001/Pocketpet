@@ -1,8 +1,10 @@
 // Tasks window. Runs a web errand through the Rust agent (agent.rs) and shows
-// its progress; pauses for approvals; holds memory, keys and limits. Settings
-// (provider, model, history, spend) share the overlay's localStorage via
-// preferences.js; API keys go to Credential Manager only.
+// its progress; pauses for approvals; holds memory, keys, schedules and
+// limits. Settings share the overlay's localStorage via preferences.js; API
+// keys go to Credential Manager only. Task history and spend are written by
+// the overlay (single writer), which tells us via pet://settings.
 import { readSettings, writeSettings, AGENT_PROVIDERS } from "./preferences.js";
+import { getPet } from "./pets/index.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen, emit } = window.__TAURI__.event;
@@ -10,7 +12,9 @@ const { listen, emit } = window.__TAURI__.event;
 const $ = (id) => document.getElementById(id);
 let settings = readSettings();
 let providers = [];
-let current = null; // { id, task, provider, model, startedAt, paused }
+let current = null; // { id, task, provider, model, startedAt, paused, host }
+const queue = []; // tasks waiting while one runs
+let answeredOnce = false;
 
 const LABEL = {
   claude: "Claude (Anthropic)",
@@ -56,6 +60,7 @@ function showTab(name) {
   if (name === "providers") renderKeys();
   if (name === "memory") loadMemory();
   if (name === "limits") renderLimits();
+  if (name === "schedules") renderSchedules();
 }
 
 // --- providers & models ---------------------------------------------------------
@@ -112,7 +117,7 @@ $("refreshModels").addEventListener("click", async () => {
   }
 });
 
-// --- keys --------------------------------------------------------------------------
+// --- keys & model behaviour ------------------------------------------------------------
 
 function renderKeys() {
   const list = $("keys");
@@ -158,7 +163,10 @@ function renderKeys() {
   }
   $("url_ollama").value = settings.agent.baseUrls.ollama ?? "";
   $("url_custom").value = settings.agent.baseUrls.custom ?? "";
+  $("stream").checked = settings.agent.stream;
+  $("digestModel").value = settings.agent.digestModel;
   $("voice").checked = settings.agent.voice;
+  $("voiceEngine").value = settings.agent.voiceEngine;
   $("speakSetting").checked = settings.agent.speak;
   $("mic").hidden = !settings.agent.voice;
 }
@@ -166,22 +174,27 @@ function renderKeys() {
 for (const id of ["ollama", "custom"]) {
   $(`url_${id}`).addEventListener("change", () => save({ agent: { baseUrls: { [id]: $(`url_${id}`).value.trim() } } }));
 }
+$("stream").addEventListener("input", () => save({ agent: { stream: $("stream").checked } }));
+$("digestModel").addEventListener("change", () => save({ agent: { digestModel: $("digestModel").value.trim() } }));
 $("voice").addEventListener("input", () => {
   save({ agent: { voice: $("voice").checked } });
   $("mic").hidden = !$("voice").checked;
 });
+$("voiceEngine").addEventListener("input", () => save({ agent: { voiceEngine: $("voiceEngine").value } }));
 $("speakSetting").addEventListener("input", () => save({ agent: { speak: $("speakSetting").checked } }));
 
-// --- limits & sites ---------------------------------------------------------------------
+// --- limits, sites, rules ---------------------------------------------------------------
 
 function renderLimits() {
   $("browserOn").checked = settings.agent.browser;
   $("sites").value = settings.agent.allowedSites.join("\n");
+  $("purchaseCap").value = settings.agent.purchaseCap;
   $("dailyCap").value = settings.agent.dailyCapUsd;
   $("maxTurns").value = settings.agent.maxTurns;
   $("maxTurnsHint").textContent = String(settings.agent.maxTurns);
   $("narrate").checked = settings.agent.narrate;
   paintSpend();
+  renderRules();
 }
 
 function paintSpend() {
@@ -189,6 +202,40 @@ function paintSpend() {
   const s = spentToday();
   $("spendToday").textContent = `Spent today: $${s.toFixed(3)}${cap ? ` of $${cap.toFixed(2)}` : ""}`;
   $("spend").textContent = s ? `· $${s.toFixed(3)} today` : "";
+}
+
+function renderRules() {
+  const list = $("rules");
+  list.innerHTML = "";
+  const entries = Object.entries(settings.agent.siteRules);
+  if (!entries.length) list.innerHTML = '<li class="hint">No rules yet — they appear when you pick "Always allow" or "Never" on an approval.</li>';
+  for (const [domain, rule] of entries.sort()) {
+    const li = document.createElement("li");
+    const d = document.createElement("span");
+    d.className = "domain grow";
+    d.textContent = domain;
+    const sel = document.createElement("select");
+    for (const r of ["allow", "ask", "never"]) sel.add(new Option(r, r));
+    sel.value = rule;
+    sel.addEventListener("input", () => setRule(domain, sel.value));
+    const del = document.createElement("button");
+    del.type = "button";
+    del.textContent = "Remove";
+    del.addEventListener("click", () => {
+      const rest = { ...settings.agent.siteRules };
+      delete rest[domain];
+      save({ agent: { siteRules: null } });
+      save({ agent: { siteRules: rest } });
+      renderRules();
+    });
+    li.append(d, sel, del);
+    list.append(li);
+  }
+}
+
+function setRule(domain, rule) {
+  save({ agent: { siteRules: { [domain]: rule } } });
+  renderRules();
 }
 
 $("browserOn").addEventListener("input", () => save({ agent: { browser: $("browserOn").checked } }));
@@ -199,6 +246,7 @@ $("sites").addEventListener("change", () => {
   $("sitesStatus").textContent = kept.length === lines.length ? `${kept.length} site${kept.length === 1 ? "" : "s"}.` : `Kept ${kept.length} of ${lines.length} (use plain domains like amazon.in).`;
   $("sites").value = kept.join("\n");
 });
+$("purchaseCap").addEventListener("change", () => save({ agent: { purchaseCap: Number($("purchaseCap").value) } }));
 $("dailyCap").addEventListener("change", () => {
   save({ agent: { dailyCapUsd: Number($("dailyCap").value) } });
   paintSpend();
@@ -211,6 +259,17 @@ $("narrate").addEventListener("input", () => save({ agent: { narrate: $("narrate
 $("closeBrowser").addEventListener("click", async () => {
   const closed = await invoke("agent_close_browser").catch(() => false);
   $("status").textContent = closed ? "Browser closed." : "No pet browser was open.";
+});
+$("signIn").addEventListener("click", async () => {
+  const site = prompt("Which site? (e.g. amazon.in) — the pet's browser opens it; sign in there once and it stays signed in.");
+  if (!site) return;
+  const url = /^https?:\/\//.test(site) ? site : `https://${site.trim()}`;
+  try {
+    await invoke("agent_open_site", { url });
+    $("status").textContent = `Opened ${url} in the pet's browser. Sign in, then close or leave it.`;
+  } catch (err) {
+    $("status").textContent = String(err);
+  }
 });
 
 // --- memory ----------------------------------------------------------------------------
@@ -233,6 +292,52 @@ $("memoryClear").addEventListener("click", async () => {
   loadMemory();
 });
 
+// --- schedules ---------------------------------------------------------------------------
+
+function renderSchedules() {
+  settings = readSettings();
+  const list = $("schedList");
+  list.innerHTML = "";
+  if (!settings.agent.schedules.length) list.innerHTML = '<li class="hint">Nothing scheduled.</li>';
+  for (const s of settings.agent.schedules) {
+    const li = document.createElement("li");
+    const on = document.createElement("input");
+    on.type = "checkbox";
+    on.checked = s.enabled;
+    on.title = "Enabled";
+    on.addEventListener("input", () => updateSchedule(s.id, { enabled: on.checked }));
+    const when = document.createElement("span");
+    when.className = "when";
+    when.textContent = `${s.time} · ${s.days}${s.lastRun ? ` · last ${s.lastRun}` : ""}`;
+    const text = document.createElement("span");
+    text.className = "grow";
+    text.textContent = s.task;
+    const del = document.createElement("button");
+    del.type = "button";
+    del.textContent = "Remove";
+    del.addEventListener("click", () => {
+      save({ agent: { schedules: settings.agent.schedules.filter((x) => x.id !== s.id) } });
+      renderSchedules();
+    });
+    li.append(on, when, text, del);
+    list.append(li);
+  }
+}
+
+function updateSchedule(id, patch) {
+  save({ agent: { schedules: settings.agent.schedules.map((x) => (x.id === id ? { ...x, ...patch } : x)) } });
+  renderSchedules();
+}
+
+$("schedAdd").addEventListener("click", () => {
+  const task = $("schedTask").value.trim();
+  if (!task) return;
+  const entry = { id: Math.random().toString(36).slice(2, 10), task, time: $("schedTime").value || "09:00", days: $("schedDays").value, enabled: true, lastRun: "" };
+  save({ agent: { schedules: [...settings.agent.schedules, entry] } });
+  $("schedTask").value = "";
+  renderSchedules();
+});
+
 // --- running a task ------------------------------------------------------------------
 
 function logLine(kind, text) {
@@ -240,7 +345,7 @@ function logLine(kind, text) {
   log.querySelector(".empty")?.remove();
   const li = document.createElement("li");
   li.className = kind;
-  const icon = { start: "▶", tool: "🔎", result: "↳", note: "💬", answer: "✅", error: "⚠", cancelled: "⏹", ask: "❓", confirm: "🛑", browser: "🌐", act: "👉", usage: "·" }[kind] ?? "•";
+  const icon = { start: "▶", tool: "🔎", result: "↳", note: "💬", answer: "✅", error: "⚠", cancelled: "⏹", killed: "⏻", ask: "❓", confirm: "🛑", browser: "🌐", act: "👉", usage: "·" }[kind] ?? "•";
   const i = document.createElement("span");
   i.textContent = icon;
   const t = document.createElement("span");
@@ -251,10 +356,10 @@ function logLine(kind, text) {
 }
 
 function setRunning(on) {
-  $("run").disabled = on;
+  $("run").disabled = false; // "Go" while running queues the next task
+  $("run").textContent = on ? "Queue" : "Go";
   $("cancel").disabled = !on;
   $("pause").disabled = !on;
-  $("task").disabled = on;
   $("provider").disabled = on;
   if (!on) {
     $("pause").textContent = "Pause";
@@ -262,13 +367,49 @@ function setRunning(on) {
   }
 }
 
-$("run").addEventListener("click", startTask);
+$("run").addEventListener("click", () => submitTask($("task").value.trim(), $("followUp").checked));
 $("task").addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) startTask();
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) submitTask($("task").value.trim(), $("followUp").checked);
 });
 
-async function startTask() {
-  const task = $("task").value.trim();
+function submitTask(task, followUp) {
+  if (!task) return;
+  if (current) {
+    if (queue.length >= 3) {
+      $("status").textContent = "Queue is full (3).";
+      return;
+    }
+    queue.push({ task, followUp: false });
+    $("task").value = "";
+    renderQueue();
+    return;
+  }
+  startTask(task, followUp);
+}
+
+function renderQueue() {
+  const q = $("queue");
+  q.hidden = queue.length === 0;
+  q.innerHTML = "";
+  queue.forEach((item, i) => {
+    const li = document.createElement("li");
+    const t = document.createElement("span");
+    t.className = "grow";
+    t.textContent = item.task;
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "mini";
+    del.textContent = "Remove";
+    del.addEventListener("click", () => {
+      queue.splice(i, 1);
+      renderQueue();
+    });
+    li.append(t, del);
+    q.append(li);
+  });
+}
+
+async function startTask(task, followUp = false) {
   if (!task || current) return;
   settings = readSettings();
   const cap = settings.agent.dailyCapUsd;
@@ -280,9 +421,11 @@ async function startTask() {
   const provider = $("provider").value;
   const model = $("model").value.trim();
   const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-  current = { id, task, provider, model, startedAt: Date.now(), paused: false };
+  current = { id, task, provider, model, startedAt: Date.now(), paused: false, host: "" };
   $("log").innerHTML = "";
   $("answerCard").hidden = true;
+  $("answer").textContent = "";
+  $("answer").classList.remove("live");
   $("planCard").hidden = true;
   $("plan").innerHTML = "";
   $("shotWrap").hidden = true;
@@ -297,8 +440,13 @@ async function startTask() {
         petName,
         maxTurns: settings.agent.maxTurns,
         allowedSites: settings.agent.allowedSites,
+        siteRules: settings.agent.siteRules,
         budgetUsd: budget,
+        purchaseCap: settings.agent.purchaseCap,
         browser: settings.agent.browser,
+        digestModel: settings.agent.digestModel,
+        continuePrevious: followUp,
+        stream: settings.agent.stream,
       },
     });
   } catch (err) {
@@ -316,14 +464,21 @@ $("pause").addEventListener("click", () => {
   $("pause").textContent = current.paused ? "Resume" : "Pause";
   $("status").textContent = current.paused ? "Paused — take over in the browser, then Resume." : "Working…";
 });
+$("kill").addEventListener("click", () => {
+  queue.length = 0;
+  renderQueue();
+  invoke("agent_kill").catch(() => {});
+});
 
 // approvals and questions
-function showAsk(kind, text) {
+function showAsk(kind, text, host) {
   $("askCard").hidden = false;
   $("askTitle").textContent = kind === "confirm" ? "Approve this step?" : "The pet has a question";
   $("askText").textContent = text;
   $("askConfirm").hidden = kind !== "confirm";
+  $("askRules").hidden = kind !== "confirm" || !host;
   $("askReply").hidden = kind === "confirm";
+  if (current) current.host = host || "";
   if (kind !== "confirm") {
     $("replyText").value = "";
     $("replyText").focus();
@@ -341,6 +496,14 @@ function reply(text) {
 }
 $("approve").addEventListener("click", () => reply("yes"));
 $("deny").addEventListener("click", () => reply("no"));
+$("alwaysAllow").addEventListener("click", () => {
+  if (current?.host) setRule(current.host, "allow");
+  reply("yes");
+});
+$("neverAllow").addEventListener("click", () => {
+  if (current?.host) setRule(current.host, "never");
+  reply("no");
+});
 $("replySend").addEventListener("click", () => reply($("replyText").value.trim() || "done"));
 $("replyText").addEventListener("keydown", (e) => {
   if (e.key === "Enter") reply($("replyText").value.trim() || "done");
@@ -351,15 +514,22 @@ function finish(status, text) {
   const done = { ...current };
   current = null;
   setRunning(false);
+  $("answer").classList.remove("live");
   $("status").textContent = status === "done" ? `Done in ${Math.round((Date.now() - done.startedAt) / 1000)} s` : status === "cancelled" ? "Cancelled." : "Failed.";
   if (status === "done") {
     $("answerCard").hidden = false;
     renderAnswer(text);
+    answeredOnce = true;
+    $("followRow").hidden = false; // opt-in: ticking it continues with this task's context
     if (settings.agent.speak) speak(text);
   }
   logLine(status === "done" ? "answer" : status, status === "done" ? "Answer ready" : text);
-  // History and spend are written by the overlay (single writer avoids
-  // cross-window localStorage races); it tells us via pet://settings.
+  if (queue.length) {
+    const next = queue.shift();
+    renderQueue();
+    $("task").value = next.task;
+    setTimeout(() => startTask(next.task, false), 400);
+  }
 }
 
 /** Plain text with clickable links; nothing else is interpreted. */
@@ -396,8 +566,10 @@ $("copy").addEventListener("click", async () => {
 function speak(text) {
   try {
     speechSynthesis.cancel();
+    const v = getPet(settings.pet)?.voice ?? { pitch: 1, rate: 1 };
     const u = new SpeechSynthesisUtterance(text.replace(/https?:\/\/\S+/g, "link").slice(0, 1200));
-    u.rate = 1.05;
+    u.pitch = v.pitch;
+    u.rate = v.rate;
     speechSynthesis.speak(u);
   } catch {
     /* no voices */
@@ -406,9 +578,25 @@ function speak(text) {
 $("speak").addEventListener("click", () => speak($("answer").textContent));
 
 listen("pet://task", ({ payload }) => {
-  if (!current || payload.id !== current.id) return;
   const { kind, text, detail } = payload;
+  if (kind === "killed") {
+    if (current) finish("cancelled", "Stopped by the kill switch.");
+    logLine("killed", text);
+    return;
+  }
+  if (!current || payload.id !== current.id) return;
   switch (kind) {
+    case "delta": {
+      // Live answer text; the final "answer" event replaces it.
+      const box = $("answer");
+      if ($("answerCard").hidden) {
+        $("answerCard").hidden = false;
+        box.textContent = "";
+      }
+      box.classList.add("live");
+      box.append(document.createTextNode(text));
+      return;
+    }
     case "answer":
       return finish("done", text);
     case "error":
@@ -418,7 +606,7 @@ listen("pet://task", ({ payload }) => {
     case "confirm":
     case "ask":
       logLine(kind, text);
-      return showAsk(kind, text);
+      return showAsk(kind, text, detail?.host);
     case "plan": {
       $("planCard").hidden = false;
       $("plan").innerHTML = "";
@@ -437,22 +625,47 @@ listen("pet://task", ({ payload }) => {
     case "shot":
       $("shotWrap").hidden = false;
       $("shot").src = `data:image/jpeg;base64,${detail?.jpeg ?? ""}`;
-      return logLine("tool", "screenshot");
+      return logLine("tool", text);
     case "usage":
       $("spend").textContent = `· $${(spentToday() + (detail?.usd ?? 0)).toFixed(3)} today`;
       return;
     case "act":
-      return; // the pet animates these; nothing to log
+      return;
+    case "tool":
+    case "note":
+      // A new model turn started (text streaming stopped); clear the live box.
+      $("answer").classList.remove("live");
+      logLine(kind, text);
+      return;
     default:
       logLine(kind, text);
   }
 });
 
 // --- voice input ----------------------------------------------------------------------
-// Hold the mic button; on release the clip goes to Whisper (Groq/OpenAI key).
+// Windows engine: one call, the OS listens until you pause. Whisper engine:
+// hold the button (or press the hotkey to toggle), the clip goes to Whisper.
 
 let recorder = null;
 let chunks = [];
+let listening = false;
+
+async function listenWindows() {
+  if (listening) return;
+  listening = true;
+  $("mic").classList.add("recording");
+  $("status").textContent = "Listening… speak, then pause.";
+  try {
+    const text = await invoke("windows_listen");
+    $("task").value = ($("task").value.trim() ? $("task").value.trim() + " " : "") + text;
+    $("status").textContent = "Heard you. Press Go.";
+  } catch (err) {
+    $("status").textContent = String(err);
+  } finally {
+    listening = false;
+    $("mic").classList.remove("recording");
+  }
+}
 
 async function startRecording() {
   if (recorder) return;
@@ -486,15 +699,32 @@ async function startRecording() {
     $("mic").classList.add("recording");
     $("status").textContent = "Listening… release to stop.";
   } catch (err) {
-    $("status").textContent = `Microphone unavailable: ${err.message ?? err}. Press Win+H to dictate instead.`;
+    $("status").textContent = `Microphone unavailable: ${err.message ?? err}. Try the Windows engine under Providers › Voice.`;
   }
 }
 function stopRecording() {
   if (recorder && recorder.state === "recording") recorder.stop();
 }
-$("mic").addEventListener("pointerdown", startRecording);
-$("mic").addEventListener("pointerup", stopRecording);
-$("mic").addEventListener("pointerleave", stopRecording);
+const whisperMode = () => settings.agent.voiceEngine === "whisper";
+$("mic").addEventListener("pointerdown", () => (whisperMode() ? startRecording() : listenWindows()));
+$("mic").addEventListener("pointerup", () => whisperMode() && stopRecording());
+$("mic").addEventListener("pointerleave", () => whisperMode() && stopRecording());
+
+// Hotkeys from Rust: voice (toggle) and clipboard.
+listen("pet://voice", () => {
+  showTab("run");
+  if (whisperMode()) {
+    if (recorder) stopRecording();
+    else startRecording();
+  } else listenWindows();
+});
+listen("pet://clip", ({ payload }) => {
+  showTab("run");
+  const text = (payload?.text ?? "").trim();
+  $("task").value = text ? `Do this with the text below:\n\n${text.slice(0, 2000)}` : "";
+  $("task").focus();
+  $("task").setSelectionRange(0, 0);
+});
 
 // --- history -------------------------------------------------------------------------
 
@@ -511,6 +741,16 @@ function renderHistory() {
     const meta = document.createElement("div");
     meta.className = `meta ${t.status === "error" ? "status-error" : ""}`;
     meta.textContent = `${new Date(t.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} · ${t.provider}${t.model ? " · " + t.model : ""} · ${t.status}`;
+    const logBtn = document.createElement("button");
+    logBtn.type = "button";
+    logBtn.className = "mini";
+    logBtn.textContent = "Log";
+    logBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const ok = await invoke("open_task_log", { id: t.id }).catch(() => false);
+      if (!ok) $("status").textContent = "No log file for that task.";
+    });
+    meta.append(" ", logBtn);
     li.append(title, meta);
     li.addEventListener("click", () => {
       $("task").value = t.task;

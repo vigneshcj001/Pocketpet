@@ -2095,15 +2095,90 @@ function pointAt(px, py, what) {
   ringTimer = setTimeout(hideRing, 900);
 }
 
-/** Read the answer aloud with the system voice, if the user wants that. */
+/** Read text aloud in this pet's voice (pitch/rate per animal), if the user wants that. */
 function speakAloud(text) {
   try {
     speechSynthesis.cancel();
+    const v = pet.voice ?? { pitch: 1, rate: 1 };
     const u = new SpeechSynthesisUtterance(String(text).replace(/https?:\/\/\S+/g, "link").slice(0, 1200));
-    u.rate = 1.05;
+    u.pitch = v.pitch;
+    u.rate = v.rate;
     speechSynthesis.speak(u);
   } catch {
     /* no voices installed */
+  }
+}
+
+// --- scheduled tasks ----------------------------------------------------------
+// Checked every 30 s. A due schedule runs once per day, only while nothing
+// else is running; the answer arrives through the normal task events.
+
+let taskRunning = false;
+
+function scheduleDue(s, now) {
+  if (!s.enabled) return false;
+  const day = now.toISOString().slice(0, 10);
+  if (s.lastRun === day) return false;
+  const dow = now.getDay();
+  if (s.days === "weekdays" && (dow === 0 || dow === 6)) return false;
+  if (s.days === "weekends" && dow !== 0 && dow !== 6) return false;
+  const [hh, mm] = s.time.split(":").map(Number);
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const at = hh * 60 + mm;
+  // Fire within a 10-minute window after the time (in case the app was busy).
+  return minutes >= at && minutes < at + 10;
+}
+
+function tickSchedules() {
+  if (taskRunning || state.hidden || state.quiet) return;
+  const now = new Date();
+  const due = settings.agent.schedules.find((s) => scheduleDue(s, now));
+  if (!due) return;
+  const day = now.toISOString().slice(0, 10);
+  settings.agent = { ...settings.agent, schedules: settings.agent.schedules.map((s) => (s.id === due.id ? { ...s, lastRun: day } : s)) };
+  saveSettings();
+  const provider = settings.agent.provider;
+  const id = `sched-${Date.now().toString(36)}`;
+  const cap = settings.agent.dailyCapUsd;
+  const spent = settings.agent.spend?.date === day ? settings.agent.spend.usd : 0;
+  const budget = cap > 0 ? Math.max(0, cap - spent) : 0;
+  if (cap > 0 && budget <= 0) return;
+  invoke("agent_run", {
+    req: {
+      id,
+      task: due.task,
+      provider,
+      model: settings.agent.models[provider] ?? "",
+      baseUrl: settings.agent.baseUrls[provider] ?? "",
+      petName: petName(),
+      maxTurns: settings.agent.maxTurns,
+      allowedSites: settings.agent.allowedSites,
+      siteRules: settings.agent.siteRules,
+      budgetUsd: budget,
+      purchaseCap: settings.agent.purchaseCap,
+      browser: settings.agent.browser,
+      digestModel: settings.agent.digestModel,
+      continuePrevious: false,
+      stream: settings.agent.stream,
+    },
+  }).catch(() => {});
+  say(`Time for my scheduled errand: ${due.task.slice(0, 60)}…`, 3000);
+}
+
+// --- update check -------------------------------------------------------------
+
+async function maybeCheckUpdate() {
+  if (!settings.agent.updateCheck) return;
+  if (Date.now() - (settings.agent.lastUpdateCheck || 0) < 24 * 3600 * 1000) return;
+  try {
+    const info = await invoke("check_update");
+    settings.agent = { ...settings.agent, lastUpdateCheck: Date.now() };
+    saveSettings();
+    if (info.available) {
+      say(`Psst — PocketPet ${info.latest} is out. Settings › Backup › Check for updates.`, 8000);
+    }
+  } catch {
+    /* offline */
   }
 }
 
@@ -2133,7 +2208,14 @@ function rememberTask(payload, status) {
 listen("pet://task", ({ payload }) => {
   const { kind, text } = payload ?? {};
   const narrate = settings.agent?.narrate !== false && !state.quiet && !state.hidden;
+  if (kind === "killed") {
+    taskRunning = false;
+    state.perched = false;
+    if (narrate) say("Stopped everything and closed the browser.", 3000);
+    return;
+  }
   if (kind === "start") {
+    taskRunning = true;
     if (narrate) say("On it! Let me look that up…", 3000);
     if (state.mode === "free") {
       state.antic = null;
@@ -2149,13 +2231,18 @@ listen("pet://task", ({ payload }) => {
     if (payload.detail) pointAt(payload.detail.x, payload.detail.y, text);
   } else if (kind === "confirm" || kind === "ask") {
     if (narrate) say(kind === "confirm" ? "Need your okay for this — see the Tasks window." : "Question for you in the Tasks window.", 5000);
+    if (settings.agent?.speak) speakAloud(text);
     setAnim("look");
     playChirp();
   } else if (kind === "answer") {
+    taskRunning = false;
     if (settings.agent?.speak) speakAloud(text);
     clearTimeout(taskAnim);
     record("tasks");
     rememberTask(payload, "done");
+    if (String(payload.id).startsWith("sched-") && settings.toasts) {
+      invoke("notify", { title: "PocketPet did your scheduled task", body: String(text).slice(0, 200) }).catch(() => {});
+    }
     if (narrate) {
       const first = String(text).split("\n").find((l) => l.trim()) ?? "";
       say(`Done! ${first.length > 140 ? first.slice(0, 138) + "…" : first}\n(Full answer in the Tasks window.)`, 9000);
@@ -2164,10 +2251,12 @@ listen("pet://task", ({ payload }) => {
       setTimeout(() => setAnim("idle"), 1300);
     }
   } else if (kind === "error") {
+    taskRunning = false;
     clearTimeout(taskAnim);
     rememberTask(payload, "error");
     if (narrate) say(`Hmm, that didn't work: ${String(text).slice(0, 120)}`, 6000);
   } else if (kind === "cancelled") {
+    taskRunning = false;
     clearTimeout(taskAnim);
     rememberTask(payload, "cancelled");
     if (narrate) say("Okay, stopped.", 1500);
@@ -2205,6 +2294,8 @@ async function boot() {
   scheduleAntic();
   tickHunger();
   setInterval(tickHunger, 30_000);
+  setInterval(tickSchedules, 30_000);
+  setTimeout(maybeCheckUpdate, 20_000);
   scheduleFrame();
 }
 

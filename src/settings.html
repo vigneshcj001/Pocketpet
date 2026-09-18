@@ -186,6 +186,9 @@
           <label>Throw toy <input type="text" id="sc_play" class="shortcut" readonly /></label>
           <label>Open settings <input type="text" id="sc_settings" class="shortcut" readonly /></label>
           <label>Ask me to do something <input type="text" id="sc_tasks" class="shortcut" readonly /></label>
+          <label>Talk to the pet (voice) <input type="text" id="sc_voice" class="shortcut" readonly /></label>
+          <label>Task from clipboard text <input type="text" id="sc_clip" class="shortcut" readonly /></label>
+          <label>Kill switch — stop every task, close the pet's browser <input type="text" id="sc_kill" class="shortcut" readonly /></label>
           <button type="button" id="resetShortcuts">Reset to defaults</button>
         </div>
         <div class="card">
@@ -226,6 +229,23 @@
             <button type="button" id="importBackup">Import from file…</button>
           </div>
           <p class="hint" id="backupStatus"></p>
+        </div>
+        <div class="card">
+          <h2>Updates</h2>
+          <div class="pair">
+            <button type="button" id="checkUpdate">Check for updates</button>
+            <button type="button" id="installUpdate" hidden class="primary">Download &amp; install</button>
+          </div>
+          <label class="row"><input type="checkbox" id="updateCheck" /> Check once a day and let the pet mention it</label>
+          <p class="hint" id="updateStatus"></p>
+        </div>
+        <div class="card">
+          <h2>Problems</h2>
+          <div class="pair">
+            <button type="button" id="openLogs">Open logs folder</button>
+            <button type="button" id="copyDiag">Copy diagnostics</button>
+          </div>
+          <p class="hint" id="diagStatus">Diagnostics contain the version, which providers have keys (never the keys), and recent crash logs.</p>
         </div>
         <div class="card danger">
           <h2>Reset</h2>

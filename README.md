@@ -77,6 +77,15 @@ Built with Tauri v2 (Rust + WebView2). No Electron, no npm, no bundler.
   (Whisper) and read-aloud. Works with Claude (Anthropic web tools), OpenAI,
   Groq, Gemini, DeepSeek, Ollama, or any OpenAI-compatible local server. API
   keys live in Windows Credential Manager.
+- **Agent extras.** Streamed answers, follow-up questions that keep context,
+  a cheaper "digest" model for long pages, auto-screenshots when a page has no
+  readable text or after repeated errors, new-tab following, purchase cap
+  (refuses pay/order clicks over an amount), per-site allow/ask/never rules,
+  scheduled tasks, a queue, a kill switch (Ctrl+Alt+X), voice via Windows
+  speech or Whisper (Ctrl+Alt+V), task-from-clipboard (Ctrl+Alt+D), per-task
+  audit logs, "sign in once" for the pet's browser, update check against
+  GitHub Releases, crash logs and a diagnostics copy button. Windows remember
+  their size and position.
 
 ## How the tricky parts work
 

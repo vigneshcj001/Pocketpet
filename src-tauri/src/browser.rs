@@ -7,7 +7,7 @@
 //! Real input events (Input.dispatch*) are used for clicks and typing so React
 //! and friends behave as with a human.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -111,7 +111,9 @@ impl Cdp {
 
 pub struct Browser {
     cdp: Arc<Cdp>,
-    session: String,
+    /// The attached tab; swapped when the page opens a new one.
+    session: std::sync::Mutex<String>,
+    known_targets: std::sync::Mutex<HashSet<String>>,
     pub pid: u32,
     child: Option<std::process::Child>,
 }
@@ -169,7 +171,14 @@ impl Browser {
         let target_id = target_id.ok_or("No page target")?;
         let attached = cdp.call(None, "Target.attachToTarget", json!({ "targetId": target_id, "flatten": true })).await?;
         let session = attached.get("sessionId").and_then(Value::as_str).ok_or("No session")?.to_string();
-        let b = Browser { cdp, session, pid, child: Some(child) };
+        let mut known = HashSet::new();
+        for t in targets.get("targetInfos").and_then(Value::as_array).into_iter().flatten() {
+            if let Some(id) = t.get("targetId").and_then(Value::as_str) {
+                known.insert(id.to_string());
+            }
+        }
+        known.insert(target_id.clone());
+        let b = Browser { cdp, session: std::sync::Mutex::new(session), known_targets: std::sync::Mutex::new(known), pid, child: Some(child) };
         b.cmd("Page.enable", json!({})).await?;
         b.cmd("Runtime.enable", json!({})).await?;
         let _ = b.cmd("Page.bringToFront", json!({})).await;
@@ -177,7 +186,41 @@ impl Browser {
     }
 
     async fn cmd(&self, method: &str, params: Value) -> Result<Value, String> {
-        self.cdp.call(Some(&self.session), method, params).await
+        let session = self.session.lock().unwrap().clone();
+        self.cdp.call(Some(&session), method, params).await
+    }
+
+    /// Sites open payment gateways and "view on map" in new tabs. If one has
+    /// appeared since we last looked, drive that instead. Returns true on switch.
+    pub async fn follow_new_tab(&self) -> Result<bool, String> {
+        let targets = self.cdp.call(None, "Target.getTargets", json!({})).await?;
+        let mut newest: Option<String> = None;
+        {
+            let mut known = self.known_targets.lock().unwrap();
+            for t in targets.get("targetInfos").and_then(Value::as_array).into_iter().flatten() {
+                if t.get("type").and_then(Value::as_str) != Some("page") {
+                    continue;
+                }
+                let Some(id) = t.get("targetId").and_then(Value::as_str) else { continue };
+                if known.insert(id.to_string()) {
+                    newest = Some(id.to_string());
+                }
+            }
+        }
+        let Some(id) = newest else { return Ok(false) };
+        let attached = self.cdp.call(None, "Target.attachToTarget", json!({ "targetId": id, "flatten": true })).await?;
+        let session = attached.get("sessionId").and_then(Value::as_str).ok_or("No session")?.to_string();
+        *self.session.lock().unwrap() = session;
+        self.cmd("Page.enable", json!({})).await?;
+        self.cmd("Runtime.enable", json!({})).await?;
+        self.wait_loaded().await;
+        Ok(true)
+    }
+
+    /// Readable text of the page (for the purchase cap), capped.
+    pub async fn page_text(&self) -> Result<String, String> {
+        let v = self.eval("(document.body ? document.body.innerText : '').slice(0, 20000)").await?;
+        Ok(v.as_str().unwrap_or("").to_string())
     }
 
     /// Run JS in the page and return its JSON-serialisable result.

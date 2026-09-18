@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Permissions for the PocketPet overlay window",
   "windows": ["overlay", "settings", "tasks"],
-  "permissions": ["core:default", "notification:default"]
+  "permissions": ["core:default", "notification:default", "window-state:default"]
 }
