@@ -5,4 +5,4 @@ node_modules/
 .DS_Store
 
 # Installers belong on GitHub Releases, not in the repo
-*.exe
+

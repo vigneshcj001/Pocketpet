@@ -58,7 +58,8 @@ Built with Tauri v2 (Rust + WebView2). No Electron, no npm, no bundler.
 - **Companion that counts.** Feed, pat and cuddle the second pet too; it has
   its own hunger and history and chases the toy alongside.
 - **Toys and games.** Ball, yarn or frisbee for fetch; obstacle-jump and
-  hide-and-seek mini-games with a win record.
+  hide-and-seek mini-games with a win record (while hiding, the pet and its
+  hunger bar vanish completely — no peeking).
 - **Dashboard.** Per-pet counters, milestones with progress, a journal, and
   accessories that unlock as you go.
 - **Shortcuts you choose.** Hide/show, feed, throw and settings hotkeys are
@@ -72,7 +73,9 @@ Built with Tauri v2 (Rust + WebView2). No Electron, no npm, no bundler.
   itself (its own profile, separate from yours). It plans in steps, narrates,
   sits on the browser and points at what it clicks, then files the answer.
   Anything that pays, books, logs in, sends or deletes stops for your approval
-  in the Tasks window; it never types passwords or card numbers. Allowed-site
+  in the Tasks window (the card pops in right under the task box, with a live
+  state chip, elapsed timer and timestamped progress log below); it never
+  types passwords or card numbers. Allowed-site
   list, daily spend cap, pause/take-over, memory of your preferences, voice in
   (Whisper) and read-aloud. Works with Claude (Anthropic web tools), OpenAI,
   Groq, Gemini, DeepSeek, Ollama, or any OpenAI-compatible local server. API

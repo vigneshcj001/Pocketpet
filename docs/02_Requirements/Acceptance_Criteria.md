@@ -11,11 +11,13 @@ Given/When/Then per feature. All must pass before a tagged release.
 ## Care
 - **Feed**: Given "Feed", when I click anywhere, then food lands on the ledge under the click, the pet eats it, hunger drops by 55, `meals` +1, journal entry added.
 - **Games**: Given "obstacle jump", then a playfield appears; Space jumps; Esc ends; `games` +1; a win adds `wins` +1.
+- **Hide & seek**: Given "hide & seek", when the box closes, then nothing of the pet (body, hunger bar, hat, countdown) is visible while boxes shuffle; 1/2/3 or a click picks; 3 of 5 wins.
 
 ## Task agent
 - **Research**: Given a Gemini key, when I ask the current Rust version, then the answer contains a `1.xx.x` version and a source URL, streamed, in < 60 s.
 - **Browser**: When I ask for the first book on books.toscrape.com, then the browser opens, the pet sits on it, the answer contains title, price and stock.
-- **Gate — click**: When the model tries to click "Log in", then an approval card appears; Don't → the model reports the owner declined; nothing was clicked.
+- **Gate — click**: When the model tries to click "Log in", then an approval card appears directly under the task box (scrolled into view, Allow focused, no free-text row); Don't → the model reports the owner declined; nothing was clicked.
+- **Progress card**: Given a running task, then the state chip reads "Working" with a pulsing dot, the elapsed timer ticks each second, each log line carries `m:ss`; on finish the chip reads Done/Failed and the answer card scrolls into view.
 - **Gate — URL**: When the model opens a `Special:UserLogin` URL, then an approval card appears first.
 - **Gate — secret**: When the model tries `type_text` into a password field, then it is refused with an ask_user hint.
 - **Purchase cap**: Given cap 100, when the page total is 548 and the model clicks "Place order", then the click is refused regardless of approval.

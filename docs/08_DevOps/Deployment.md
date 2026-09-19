@@ -1,6 +1,6 @@
 # Deployment
 
-- Artifact: `PocketPet_<version>_x64-setup.exe` (NSIS, per-user, no admin).
+- Artifact: `PocketPet_<version>_x64-setup.exe` (NSIS, per-user, no admin). Built by `build-installer.ps1` into `src-tauri/target/release/bundle/nsis/`; a copy may sit at the repo root for hand-off (ignored via `*.exe`).
 - Install: run the setup (or `/S` silent). Installs to `%LOCALAPPDATA%\PocketPet`, Start Menu shortcut, uninstaller, upgrade in place.
 - First run: WebView2 present on Win11; on Win10 the NSIS bundle downloads the Evergreen runtime if missing.
 - Updates: in-app check (daily / manual) → GitHub Releases latest → download `-setup.exe` → launch → app exits → installer upgrades → relaunch from Start Menu.

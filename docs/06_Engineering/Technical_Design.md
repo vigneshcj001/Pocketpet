@@ -30,7 +30,7 @@ Version 0.1 · September 2026
 │  WebView2 windows (same origin, shared localStorage)                         │
 │  overlay   index.html + main.js      the pet, games, breaks, narration       │
 │  settings  settings.html/.js         all preferences, dashboard, backup      │
-│  tasks     tasks.html/.js            task input, progress, approvals, keys   │
+│  tasks     tasks.html/.js            input, approvals, answer, timed log     │
 │  shared    preferences.js (schema+validation), behavior.js, games.js         │
 └──────────────────────────────────────────────────────────────────────────────┘
         │ IPC (invoke / events)                 │ HTTPS               │ CDP ws

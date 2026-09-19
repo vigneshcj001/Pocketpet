@@ -38,7 +38,7 @@ Version 0.1. Functional requirements are numbered FR-*; non-functional live in `
 - FR-S1 Single validated schema (`preferences.js::normalizeSettings`); every write is a patch merged onto a fresh read.
 - FR-S2 The overlay is the sole writer of task history and spend.
 - FR-S3 Backup export/import (`{app, version, settings}`), keys excluded; reset.
-- FR-S4 Settings window: General, Pets, Focus & screen, Breaks, Controls, Dashboard, Backup. Tasks window: Task, History, Schedules, Memory, Providers & keys, Limits & sites.
+- FR-S4 Settings window: General, Pets, Focus & screen, Breaks, Controls, Dashboard, Backup. Tasks window: Task, History, Schedules, Memory, Providers & keys, Limits & sites. Task tab order: compose → approval/question card → answer → progress (state chip, elapsed, plan, timestamped log, collapsible screenshot) → examples.
 
 ## 4. Distribution
 

@@ -20,3 +20,4 @@
 - The card names the exact element text and host ("About to click "Place order" on amazon.in. Total on the page: 548.00. Allow?").
 - The pet narrates and (optionally) speaks the question so the user notices even with the window behind.
 - Approval history is in the task log.
+- The card sits directly under the task box, is scrolled into view when it appears, and focuses **Allow**; the progress chip switches to "Needs approval" until answered.

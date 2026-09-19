@@ -13,7 +13,7 @@
 ├───────────────────────── WebView2 windows (same origin) ─────────────────────────────┤
 │ overlay  index.html + main.js   pet, games, breaks, focus, narration, schedules      │
 │ settings settings.html/.js      preferences, dashboard, backup, updates              │
-│ tasks    tasks.html/.js         task input, progress, approvals, keys, limits        │
+│ tasks    tasks.html/.js         task input, approvals, answer, timed progress, keys  │
 │ shared   preferences.js (schema) · behavior.js (rules) · games.js · pets/*.js        │
 └──────────────────────────────────────────────────────────────────────────────────────┘
       │ invoke / emit (IPC)          │ HTTPS (reqwest, rustls)         │ WebSocket (CDP)

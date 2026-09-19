@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.1.0 (unreleased tag; installer built 2026-09-18)
+## 0.1.0 (unreleased tag; installer built 2026-09-19)
+
+### 2026-09-19
+- **Hide & seek fix**: the hunger bar (and countdown pill) poked out under the box and gave the pet away. Both are hidden during games, the pet is centred inside its box, and it is fully hidden (`pet-game-covered`) from the moment the lid closes until the reveal.
+- **Tasks window**: Task tab reordered — compose → approval → answer → progress → examples; approval and answer cards scroll into view (Allow gets focus). Plan merged into the progress card with a state chip (Idle / Working / Needs approval / Paused / Done / Failed), live elapsed timer and per-line `m:ss` timestamps. Log only auto-follows when scrolled to the bottom; screenshot collapses under "Latest screenshot"; examples collapse after the first run; task box auto-grows; `Ctrl+Enter` hint; "↩ Follow up" button on the answer; missing-key hint in red.
+- **Fixed**: `.pair { display:flex }` overrode `hidden`, so the free-text reply row showed on approval cards.
 
 ### Pet
 - Cursor following, ledge walking, caption-button pressing, drag/throw, perch, double-click to sit on the active window.
