@@ -8,6 +8,15 @@ window's caption buttons and press them with its paw.
 
 Built with Tauri v2 (Rust + WebView2). No Electron, no npm, no bundler.
 
+**Download:** <https://pocketpet-web.vercel.app/> — picks the right package for
+your OS. All builds are on the
+[Releases](https://github.com/vigneshcj001/Pocketpet/releases/latest) page.
+
+| | |
+|---|---|
+| App (this repo) | <https://github.com/vigneshcj001/Pocketpet> |
+| Website | <https://pocketpet-web.vercel.app/> · source: <https://github.com/vigneshcj001/Pocketpet-web> |
+
 ## Features
 
 - **Follows the cursor.** Walks when you're near, runs when you're far, settles
@@ -146,6 +155,12 @@ Alt-Tab and the taskbar and never takes activation from what you're typing in.
 
 ## Install and run
 
+### Just want the app?
+
+Go to <https://pocketpet-web.vercel.app/> and grab the installer for your
+platform (Windows `.exe`, macOS `.dmg`, Linux `.AppImage` / `.deb`). The rest
+of this section is for building from source.
+
 ### Prerequisites
 
 | Need | Why | Check |
@@ -214,7 +229,8 @@ To start it with Windows, use **Run at startup** in the pet menu or tray menu.
 The same code builds on macOS and Linux with a smaller feature set (see
 *Known limits*). Tauri does not cross-compile, so each platform builds on its
 own machine — GitHub Actions does this for every push and attaches the
-packages to tagged releases:
+packages to tagged releases, which the [website](https://pocketpet-web.vercel.app/)
+links to automatically:
 
 | Platform | Package | Notes |
 |---|---|---|
@@ -284,6 +300,14 @@ src-tauri/
   will walk over and the press will silently do nothing.
 - Pets walk on window *top edges* only — no wall-climbing or ceiling-hanging
   yet.
+
+## Website
+
+The download page at <https://pocketpet-web.vercel.app/> lives in its own
+repo, [Pocketpet-web](https://github.com/vigneshcj001/Pocketpet-web) (React +
+Tailwind on Vite, deployed by Vercel). It runs the same sprites as this app
+and reads the latest release from the GitHub API, so publishing a `v*` tag
+here is all it takes to update the site's buttons.
 
 ## Documents
 

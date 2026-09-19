@@ -2,6 +2,9 @@
 
 ## 0.1.0 (unreleased tag; installer built 2026-09-19)
 
+### 2026-09-19 (website)
+- **Download page** at <https://pocketpet-web.vercel.app/> ([Pocketpet-web](https://github.com/vigneshcj001/Pocketpet-web)): live pet demo with the app's sprites, per-OS download cards wired to GitHub Releases, feature matrix, agent demo, changelog from releases. README and DevOps docs link to it.
+
 ### 2026-09-19 (macOS / Linux)
 - **Cross-platform build.** Win32 code (`win`, `titlebar`, `startup`, `extras`, Credential Manager, Windows speech) is `#[cfg(windows)]`; `unix.rs` supplies the same API for macOS/Linux: Tauri monitors for screen layout, `device_query` cursor poller (points→pixels on macOS), `rfd` dialogs, `arboard` clipboard, `auto-launch` startup, `tauri-plugin-global-shortcut` hotkeys, `keyring` (Keychain / Secret Service) with a `0600` file fallback. Window enumeration and caption buttons return empty there, and the frontend greys out mischief / real clicks. Shared `geom.rs`, `paths.rs`, `actions.rs`. Overlay: `macOSPrivateApi`, Accessory activation policy, visible on all workspaces. Update check picks the `.dmg` / `.AppImage` asset per platform.
 - **CI** builds Windows NSIS, macOS aarch64 + x64 DMG, Linux AppImage + deb; tags publish all of them.

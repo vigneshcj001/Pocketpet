@@ -1,5 +1,7 @@
 # Release Notes
 
+Downloads: <https://pocketpet-web.vercel.app/> · all builds on [GitHub Releases](https://github.com/vigneshcj001/Pocketpet/releases).
+
 ## PocketPet 0.1.0
 
 Your desktop pet that also runs errands.
