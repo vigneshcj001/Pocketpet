@@ -1,5 +1,13 @@
 # PocketPet documentation
 
+| | |
+|---|---|
+| Download page | <https://pocketpet-web.vercel.app/> (source: [Pocketpet-web](https://github.com/vigneshcj001/Pocketpet-web)) |
+| App repo | <https://github.com/vigneshcj001/Pocketpet> |
+| Releases | <https://github.com/vigneshcj001/Pocketpet/releases> — Windows `.exe`, macOS `.dmg` (Apple Silicon + Intel), Linux `.AppImage` / `.deb` |
+
+Platforms: **Windows** is the full experience (window-aware tricks need Win32/UIA); **macOS** and **Linux** get everything else (pet, games, customisation, task agent). See [Technical Design §1](06_Engineering/Technical_Design.md).
+
 - [01_Product / PRD](01_Product/PRD.md)
 - [01_Product / Business Requirements](01_Product/Business_Requirements.md)
 - [01_Product / User Stories](01_Product/User_Stories.md)

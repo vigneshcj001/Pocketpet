@@ -13,3 +13,20 @@
 - Updates: in-app check (daily / manual) → GitHub Releases latest → download `-setup.exe` → launch → app exits → installer upgrades → relaunch from Start Menu.
 - Data survives upgrades (localStorage in WebView2 profile keyed by app identifier `com.vigneshcj001.pocketpet`, files under `%LOCALAPPDATA%\PocketPet`).
 - Uninstall: Settings › Apps or the uninstaller; leaves user data and Credential Manager entries (remove keys from the Tasks window first if desired).
+
+## macOS
+
+- Artifacts: `PocketPet_<version>_aarch64.dmg` (Apple Silicon) and `PocketPet_<version>_x64.dmg` (Intel). Unsigned: first launch needs right-click → Open, or `xattr -d com.apple.quarantine /Applications/PocketPet.app`.
+- Install: drag to Applications. No Dock icon (Accessory activation policy); the pet and a menu-bar icon appear. Overlay covers the main display only.
+- Permissions: System Settings → Privacy & Security → Accessibility for global hotkeys.
+- Updates: in-app check downloads the matching `.dmg` and opens it; replace the app in Applications.
+- Data: `~/Library/Application Support/PocketPet/`; keys in Keychain (service `PocketPet`). Run at startup = LaunchAgent.
+- Uninstall: delete the app; optionally the data folder, the Keychain items and `~/Library/LaunchAgents/com.vigneshcj001.pocketpet.plist`.
+
+## Linux
+
+- Artifacts: `PocketPet_<version>_amd64.AppImage` (any distro, `chmod +x` then run) and `PocketPet_<version>_amd64.deb` (Ubuntu 22.04+ / Debian 12+, depends on `libwebkit2gtk-4.1-0`, `libgtk-3-0`).
+- Needs X11 or XWayland: click-through and the cursor poller use X11; on pure Wayland the pet blocks clicks under it.
+- Updates: in-app check downloads the `.AppImage`; replace the old file.
+- Data: `$XDG_DATA_HOME/PocketPet/` (default `~/.local/share/PocketPet/`); keys in Secret Service (GNOME Keyring / KWallet) or `keys/` with mode `0600` when no daemon runs. Run at startup = `~/.config/autostart/pocketpet.desktop`.
+- Uninstall: delete the AppImage or `apt remove pocketpet`; optionally the data folder and autostart entry.

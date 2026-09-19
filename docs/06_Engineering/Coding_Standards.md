@@ -3,6 +3,7 @@
 ## Rust
 - Edition 2021; `cargo fmt` defaults; no warnings on `cargo check` (CI treats warnings as review items).
 - `unsafe` only around Win32/WinRT calls, in the smallest block, with a comment on the invariant.
+- Platform code: Win32 modules are `#[cfg(windows)]`; `unix.rs` provides the same `pub fn` surface for macOS/Linux. New Windows-only features must have a stub (empty / `None` / `Err`) in `unix.rs` so `cargo check --target aarch64-apple-darwin` stays green. Shared types go in `geom.rs`, paths in `paths.rs`.
 - Errors as `Result<_, String>` at the command boundary with user-readable messages; no `unwrap` on external data.
 - Long-running/dialog commands are `async` (`spawn_blocking` for blocking APIs).
 - Regex via `regex-lite`; compile inside the function unless hot.

@@ -17,7 +17,7 @@ payment step, bookings up to confirmation) while you watch and approve.
 | G2 | Useful: the pet does real errands | ≥ 70 % of tasks end in "done" without the user taking over |
 | G3 | Safe: nothing irreversible without consent | 0 purchases / logins / sends without an explicit Allow |
 | G4 | Cheap: model cost stays small | Typical task < $0.05; daily cap default $2 |
-| G5 | Private: keys and data stay on the machine | No key leaves Credential Manager; no telemetry |
+| G5 | Private: keys and data stay on the machine | No key leaves the OS keychain (Credential Manager / Keychain / Secret Service); no telemetry |
 | G6 | Provider-agnostic | Works with Claude, OpenAI, Groq, Gemini, DeepSeek, Ollama, any OpenAI-compatible server |
 
 ## 3. Users
@@ -41,7 +41,7 @@ payment step, bookings up to confirmation) while you watch and approve.
 - Task agent: text or voice task → web search, page reading, real browser
   driving; streams progress; plans; asks for approval at commitment points;
   memory of preferences; schedules; audit logs; spend and purchase caps.
-- Distribution: NSIS installer, per-user install, run-at-startup, update
+- Distribution: Windows NSIS installer, macOS DMG, Linux AppImage/deb via GitHub Releases and the download page <https://pocketpet-web.vercel.app/>; run-at-startup, update
   check against GitHub Releases, CI build on push.
 
 ### Out of scope (for now)
@@ -61,7 +61,7 @@ payment step, bookings up to confirmation) while you watch and approve.
 | BR3 Purchase cap | If a page total exceeds the configured cap, pay/order clicks are refused even if the user would approve. |
 | BR4 Spend cap | Model spend is estimated per turn; a task stops when the daily cap is reached. |
 | BR5 Allowed sites | With a non-empty allow-list, leaving it requires approval. |
-| BR6 Local data | Keys in Windows Credential Manager; settings/localStorage, memory.md, task logs under `%LOCALAPPDATA%\PocketPet`. Backups never include keys. |
+| BR6 Local data | Keys in the OS keychain (Windows Credential Manager, macOS Keychain, Linux Secret Service; `0600` file fallback when no keyring runs); settings/localStorage, memory.md, task logs under the per-OS data folder (`%LOCALAPPDATA%\PocketPet` · `~/Library/Application Support/PocketPet` · `$XDG_DATA_HOME/PocketPet`). Backups never include keys. |
 | BR7 Honest answers | The agent must cite page URLs and say "not found" rather than invent. |
 | BR8 Kill switch | One hotkey stops every task and closes the pet's browser. |
 
@@ -69,8 +69,7 @@ payment step, bookings up to confirmation) while you watch and approve.
 
 - 30 scripted eval tasks (`tests/eval-tasks.json`) pass ≥ 90 % on two providers.
 - Zero gate bypasses in the eval (login/checkout URL and click gates).
-- Installer builds green in CI on every push; tagged release publishes the
-  installer; in-app update check finds it.
+- All four packages (Windows, macOS ×2, Linux) build green in CI on every push; a tagged release publishes them; the in-app update check and the download page find them.
 - No crash reports in `logs/` over one week of daily use by the owner.
 
 ## 7. Risks
@@ -88,4 +87,5 @@ payment step, bookings up to confirmation) while you watch and approve.
 1. Local speech-to-text without Windows online policy (whisper.cpp).
 2. Second-pet task runner and shared queue.
 3. Site-specific playbooks (Swiggy/Zomato/Amazon.in flows) to raise G2.
-4. Signed installer and Microsoft Store listing.
+4. Signed installer and Microsoft Store listing; Apple notarisation; Flatpak.
+5. macOS/Linux parity for window-aware tricks where the platform allows (Accessibility API on macOS, X11 `_NET_CLIENT_LIST` on Linux).

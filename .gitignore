@@ -6,3 +6,7 @@ node_modules/
 
 # Installers belong on GitHub Releases, not in the repo
 
+*.exe
+*.dmg
+*.AppImage
+*.deb

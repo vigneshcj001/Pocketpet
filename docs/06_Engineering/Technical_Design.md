@@ -6,28 +6,38 @@ Version 0.1 · September 2026
 
 | Item | Requirement |
 |------|-------------|
-| OS | Windows 10 21H2+ / Windows 11, x64 |
-| Runtime | WebView2 (preinstalled on Win11; Evergreen installer otherwise) |
+| OS | **Windows** 10 21H2+ / 11 x64 (full feature set) · **macOS** 11+ aarch64/x64 · **Linux** x86-64, X11 or XWayland |
+| Runtime | WebView2 (preinstalled on Win11; Evergreen installer otherwise) · WKWebView · WebKitGTK 4.1 |
 | Browser for the agent | Edge, Chrome or Brave (Chromium with `--remote-debugging-port`) |
-| Framework | Tauri 2 (Rust 1.77+, `windows` crate 0.58), plain ES-module frontend, no bundler |
-| Build | `cargo tauri build` → NSIS per-user installer `PocketPet_<ver>_x64-setup.exe` |
-| Install location | `%LOCALAPPDATA%\PocketPet\pocketpet.exe`; data in `%LOCALAPPDATA%\PocketPet\` |
+| Framework | Tauri 2 (Rust 1.77+; `windows` crate 0.58 on Windows; `device_query`, `rfd`, `arboard`, `auto-launch`, `keyring`, `tauri-plugin-global-shortcut` elsewhere), plain ES-module frontend, no bundler |
+| Build | `cargo tauri build` → `PocketPet_<ver>_x64-setup.exe` (NSIS, per-user) · `PocketPet_<ver>_aarch64.dmg` / `_x64.dmg` · `PocketPet_<ver>_amd64.AppImage` / `.deb`. No cross-compiling; CI runs one job per OS. |
+| Install / data | Windows `%LOCALAPPDATA%\PocketPet\` · macOS `/Applications/PocketPet.app`, data `~/Library/Application Support/PocketPet/` · Linux AppImage anywhere or `/usr/bin/pocketpet`, data `$XDG_DATA_HOME/PocketPet/` |
+| Distribution | <https://pocketpet-web.vercel.app/> ([Pocketpet-web](https://github.com/vigneshcj001/Pocketpet-web)) → GitHub Releases |
+
+Windows-only (greyed out elsewhere): window list and ledge walking, caption buttons, mischief mode, sit-on-active-window, fullscreen detection, offline Windows speech. macOS clips the overlay to the main display; pure Wayland cannot make a window click-through.
 
 ## 2. Architecture
 
 ```
-┌───────────────────────── Tauri app (pocketpet.exe) ─────────────────────────┐
+┌───────────────────────── Tauri app (pocketpet) ─────────────────────────────┐
 │  Rust                                                                        │
 │  lib.rs        commands, tray, overlay window, cursor thread, hotkeys        │
+│  geom.rs       Rect / WindowInfo / CaptionButtons (all platforms)            │
+│  paths.rs      per-OS data folder                                            │
+│  ─ Windows ─                                                                 │
 │  win.rs        Win32: windows list, foreground, fullscreen, battery, pid→hwnd│
 │  titlebar.rs   caption-button geometry (TITLEBARINFOEX, UIA, guess)          │
 │  startup.rs    Run key, RegisterHotKey thread, rebinding                     │
 │  extras.rs     monitors, file dialogs, clipboard, GitHub update check        │
+│  ─ macOS / Linux ─                                                           │
+│  unix.rs       same API via Tauri monitors, device_query, rfd, arboard,      │
+│                auto-launch, global-shortcut plugin, keyring                  │
 │  agent.rs      task loop (Anthropic + OpenAI wires, SSE), tools, gates,      │
 │                memory, audit, spend, digest, follow-ups, transcription       │
 │  browser.rs    CDP client: launch, attach, read_page, click/type/…, tabs     │
 │                                                                              │
-│  WebView2 windows (same origin, shared localStorage)                         │
+│  webview windows (WebView2 / WKWebView / WebKitGTK; same origin, shared      │
+│  localStorage)                                                               │
 │  overlay   index.html + main.js      the pet, games, breaks, narration       │
 │  settings  settings.html/.js         all preferences, dashboard, backup      │
 │  tasks     tasks.html/.js            input, approvals, answer, timed log     │
@@ -35,9 +45,9 @@ Version 0.1 · September 2026
 └──────────────────────────────────────────────────────────────────────────────┘
         │ IPC (invoke / events)                 │ HTTPS               │ CDP ws
         ▼                                       ▼                     ▼
-  Windows APIs                          LLM providers          Chromium (own profile)
-  Credential Manager, registry,         Anthropic Messages     %LOCALAPPDATA%\PocketPet\browser
-  UIA, notifications                    OpenAI-compatible
+  OS APIs                               LLM providers          Chromium (own profile)
+  keychain, autostart, UIA (Win),       Anthropic Messages     <data dir>/browser
+  notifications                         OpenAI-compatible
 ```
 
 ## 3. Functional requirements
@@ -115,16 +125,24 @@ Agent: `agent_providers`, `agent_set_key`, `agent_delete_key`, `agent_models`, `
 cargo test --manifest-path src-tauri/Cargo.toml --lib
 node --test tests/features.test.mjs
 node tests/agent-eval.mjs gemini gemini-3.6-flash   # live, costs money
-.\build-installer.ps1     # NSIS installer
+.\build-installer.ps1     # Windows NSIS installer
+# macOS / Linux (on that OS):
+cargo install tauri-cli --version "^2" --locked
+cd src-tauri && cargo tauri build --bundles dmg            # or appimage,deb
 ```
 
-CI (`.github/workflows/build.yml`): tests + installer on every push; tag `v*`
-publishes a GitHub Release with the installer, which the in-app update check
-reads (`/repos/vigneshcj001/Pocketpet/releases/latest`).
+CI (`.github/workflows/build.yml`): JS tests once, then a matrix of
+`windows-latest` (NSIS), `macos-latest` (aarch64 DMG), `macos-13` (x64 DMG)
+and `ubuntu-22.04` (AppImage + deb), each running `cargo test --lib` and
+`cargo tauri build`; tag `v*` publishes a GitHub Release with all packages,
+which the in-app update check reads
+(`/repos/vigneshcj001/Pocketpet/releases/latest`) and the download page
+<https://pocketpet-web.vercel.app/> links to by file-name suffix.
 
 ## 7. Constraints & known limits
 
-- Windows-only APIs throughout (`windows` crate); no cross-platform abstraction.
+- Window-aware features are Win32/UIA only; `unix.rs` returns empty for them. macOS overlay covers the main display only; Linux click-through needs X11/XWayland.
+- Builds are unsigned (SmartScreen / Gatekeeper prompts on first run).
 - DuckDuckGo HTML endpoint is unofficial; may throttle. Claude uses Anthropic's tools instead.
 - Windows speech needs "Online speech recognition" enabled; otherwise Whisper needs a key.
 - Gemini's OpenAI endpoint requires `thought_signature` echo on tool calls (handled), and retires models often (default tracked).

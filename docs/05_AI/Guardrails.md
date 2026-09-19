@@ -15,7 +15,7 @@ All enforced in Rust (`agent.rs`) unless noted. Unit tests: `gates_catch_money_a
 | G9 | Loop guard | 3 identical tool calls | tool error |
 | G10 | Answer timeout | 15 min on ask/confirm | task stops |
 | G11 | Kill switch | hotkey/button | cancel all + close browser |
-| G12 | Download origin | update installer only from GitHub hosts | refused otherwise |
+| G12 | Download origin | update package (any OS) only from GitHub hosts | refused otherwise |
 | G13 | Memory cap | 6 000 chars | tool error |
 | G14 | Prompt injection | prompt rule + tool-message framing + G1/G2 | human still needed for any commitment |
 | G15 | Key exposure | keys only read in Rust; diagnostics list names only | — |

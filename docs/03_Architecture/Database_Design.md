@@ -32,12 +32,19 @@ Write discipline: `writeSettings(patch)` = read → shallow-merge (nested maps
 merged one level) → normalize → write. Overlay is the sole writer of `tasks`
 and `agent.spend`.
 
-## 2. Windows Credential Manager
+## 2. OS keychain
 
-Generic credentials `PocketPet/<provider>`, user `api-key`, blob = key bytes,
-persist LOCAL_MACHINE. Read on demand; never cached in JS.
+| OS | Store |
+|----|-------|
+| Windows | Credential Manager generic credential `PocketPet/<provider>`, user `api-key`, persist LOCAL_MACHINE |
+| macOS | Keychain item, service `PocketPet`, account `<provider>` (`keyring` crate) |
+| Linux | Secret Service (GNOME Keyring / KWallet) via `keyring`; if no daemon, `keys/<provider>` under the data folder with mode `0600` |
 
-## 3. Files under `%LOCALAPPDATA%\PocketPet\`
+Read on demand; never cached in JS.
+
+## 3. Files under the data folder
+
+`%LOCALAPPDATA%\PocketPet\` (Windows) · `~/Library/Application Support/PocketPet/` (macOS) · `$XDG_DATA_HOME/PocketPet/` (Linux, default `~/.local/share/PocketPet/`) — see `src-tauri/src/paths.rs`.
 
 | Path | Format | Retention |
 |------|--------|-----------|
@@ -46,9 +53,13 @@ persist LOCAL_MACHINE. Read on demand; never cached in JS.
 | `logs/panic-<ts>.log` | text | forever |
 | `browser/` | Chromium profile | forever; "Close the pet's browser" keeps it |
 
-## 4. Registry
+## 4. Run at startup
 
-`HKCU\Software\Microsoft\Windows\CurrentVersion\Run\PocketPet` = `"<exe>"` when run-at-startup is on.
+| OS | Entry |
+|----|-------|
+| Windows | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\PocketPet` = `"<exe>"` |
+| macOS | `~/Library/LaunchAgents/com.vigneshcj001.pocketpet.plist` pointing at the `.app` bundle (`auto-launch` crate) |
+| Linux | `~/.config/autostart/pocketpet.desktop` |
 
 ## Backup format
 

@@ -6,7 +6,7 @@ Version 0.1 · September 2026
 
 ```mermaid
 flowchart TD
-  A[pocketpet.exe starts] --> B[Rust: create overlay window<br/>span virtual screen, no-activate, click-through]
+  A[pocketpet starts] --> B[Rust: create overlay window<br/>span virtual screen, no-activate, click-through]
   B --> C[Build tray menu · spawn cursor thread 60 Hz · register hotkeys]
   C --> D[Overlay JS boot: readSettings → mount pet, companion, size, toy]
   D --> E[get_screen · list_windows · get_autostart · sync_tray]
@@ -148,11 +148,13 @@ unanswered question), spend cap, max turns.
 | Data | Writer | Location |
 |------|--------|----------|
 | Settings, history, spend | Overlay (single writer), settings/tasks windows for their own fields | localStorage `pocketpet` |
-| Keys | `agent_set_key` | Credential Manager `PocketPet/<provider>` |
-| Memory | `remember` tool, Memory tab | `%LOCALAPPDATA%\PocketPet\memory.md` |
-| Task logs | `emit()` in agent.rs | `%LOCALAPPDATA%\PocketPet\tasks\<id>.log` |
-| Crashes | panic hook | `%LOCALAPPDATA%\PocketPet\logs\panic-<ts>.log` |
-| Browser profile | Chromium | `%LOCALAPPDATA%\PocketPet\browser\` |
+| Keys | `agent_set_key` | OS keychain `PocketPet/<provider>` (Credential Manager / Keychain / Secret Service) |
+| Memory | `remember` tool, Memory tab | `<data dir>/memory.md` |
+| Task logs | `emit()` in agent.rs | `<data dir>/tasks/<id>.log` |
+| Crashes | panic hook | `<data dir>/logs/panic-<ts>.log` |
+| Browser profile | Chromium | `<data dir>/browser/` |
+
+`<data dir>` = `%LOCALAPPDATA%\PocketPet` · `~/Library/Application Support/PocketPet` · `$XDG_DATA_HOME/PocketPet`.
 
 ## 7. Voice
 
@@ -170,4 +172,4 @@ answer narrated + toast + history.
 
 Daily (or Settings › Backup › Check): `GET releases/latest` → compare tag with
 `CARGO_PKG_VERSION` → pet mentions it → **Download & install** fetches the
-`-setup.exe` asset to `%TEMP%`, launches it, exits the app.
+asset for this OS (`-setup.exe` / `.dmg` / `.AppImage`) to the temp folder, launches it, exits the app.

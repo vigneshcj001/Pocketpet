@@ -25,7 +25,7 @@ human click at every commitment point.
 |---------|-------|--------------------|
 | Everyday desktop user | company, reminders, "find/order/book for me" | keeps it running daily; delegates 2–3 errands a week |
 | Tinkerer | own keys / local models, customisation, hotkeys | switches providers freely; tunes personality, rules |
-| Developer | build, test, extend | green CI, one-command installer, clear extension points |
+| Developer | build, test, extend | green CI on three OSes, one-command installer, clear extension points |
 
 ## 4. Product principles
 
@@ -43,7 +43,7 @@ human click at every commitment point.
 | Care | hunger/feeding, fetch with three toys, two mini-games, petting, stats, milestones, journal |
 | Wellbeing | break reminders (snooze, countdown, cycles), focus mode, quiet hours, toasts |
 | Agent | text/voice tasks; web search + fetch; browser driving; plans; streaming; approvals; site rules; purchase & spend caps; memory; schedules; follow-ups; audit logs; kill switch |
-| Platform | tray, hotkeys, run at startup, low-power, multi-monitor, backup/restore, update check, window state |
+| Platform | Windows (full), macOS, Linux; tray, hotkeys, run at startup, low-power, multi-monitor, backup/restore, update check, window state; download page at https://pocketpet-web.vercel.app/ |
 
 ## 6. Non-goals (0.x)
 
@@ -57,4 +57,4 @@ See `02_Requirements/Acceptance_Criteria.md` and `07_Testing/Test_Plan.md`.
 
 - Local speech-to-text without the Windows online policy (whisper.cpp)?
 - Site playbooks (Swiggy/Amazon.in) to raise task completion rate?
-- Code signing budget for a signed installer?
+- Code signing budget for a signed installer / notarised DMG?

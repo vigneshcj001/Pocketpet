@@ -32,13 +32,14 @@ Format: As a …, I want …, so that …. Priority: M (must), S (should), C (co
 | US-A8 | As a user, I want scheduled errands (morning news). | S | Schedules tab; runs once a day in the window; toast + bubble. |
 | US-A9 | As a user, I want to take over mid-task and resume. | S | Pause/Resume; I act in the browser; agent continues. |
 | US-A10 | As a user, I want one key to stop everything. | M | Ctrl+Alt+X cancels tasks and closes the pet's browser. |
-| US-A11 | As a tinkerer, I want to use my own provider/model, including local ones. | M | Claude/OpenAI/Groq/Gemini/DeepSeek/Ollama/custom; model list fetched; keys in Credential Manager. |
+| US-A11 | As a tinkerer, I want to use my own provider/model, including local ones. | M | Claude/OpenAI/Groq/Gemini/DeepSeek/Ollama/custom; model list fetched; keys in the OS keychain. |
 | US-A12 | As a user, I want a log of what it did. | S | Per-task log file; History › Log opens it. |
 
 ## Platform
 
 | ID | Story | Pri | Acceptance |
 |----|-------|-----|------------|
-| US-X1 | As a user, I want an installer and updates. | M | NSIS per-user installer; update check finds GitHub releases; download & install. |
+| US-X1 | As a user, I want an installer and updates. | M | Windows NSIS per-user installer, macOS DMG, Linux AppImage/deb; download page picks the right one; update check finds GitHub releases and the asset for this OS. |
+| US-X2 | As a Mac or Linux user, I want the pet too. | S | Same pet, games, customisation and agent; window tricks greyed out; keys in Keychain / Secret Service. |
 | US-X2 | As a user, I want backup/restore. | S | Export/import JSON without keys. |
 | US-X3 | As a user, I want hotkeys I can change. | S | All bindings editable; conflicts reported. |

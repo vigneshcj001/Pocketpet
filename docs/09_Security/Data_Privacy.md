@@ -2,7 +2,7 @@
 
 | Data | Stored | Sent | Retention | User control |
 |------|--------|------|-----------|--------------|
-| Provider keys | Credential Manager | to that provider only | until removed | Remove in Tasks › Providers |
+| Provider keys | OS keychain (Credential Manager / Keychain / Secret Service) | to that provider only | until removed | Remove in Tasks › Providers |
 | Task text & answers | localStorage history ≤ 50, task logs | to the chosen provider | until cleared | Clear history; delete log files |
 | Page contents read by tools | in-memory, task log (summaries) | to the provider as tool results | — | allow-list limits sites |
 | Screenshots | in-memory, shown in Tasks window | to the provider when attached | not stored | browser off |

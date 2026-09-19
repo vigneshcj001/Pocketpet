@@ -7,7 +7,7 @@
 1. Read the verbatim message (400 model retired, 401 key, 429 rate limit, 5xx). 2. ↻ model list; pick a current model. 3. Re-save the key. 4. Try another provider.
 
 ## Browser will not open
-1. Confirm Edge/Chrome/Brave installed. 2. Close the pet's browser (Limits & sites). 3. Delete `%LOCALAPPDATA%\PocketPet\browser` if the profile is corrupt (sessions will be lost).
+1. Confirm Edge/Chrome/Brave (or Chromium on Linux) installed. 2. Close the pet's browser (Limits & sites). 3. Delete `<data dir>/browser` (`%LOCALAPPDATA%\PocketPet` · `~/Library/Application Support/PocketPet` · `$XDG_DATA_HOME/PocketPet`) if the profile is corrupt (sessions will be lost).
 
 ## Pet invisible / not moving
 1. Ctrl+Alt+P (hidden?). 2. Focus mode active? (fullscreen app / quiet hours). 3. Follow cursor off? 4. Check `logs/` for a panic.
@@ -16,4 +16,4 @@
 Windows engine → enable Settings › Privacy & security › Speech › Online speech recognition; or switch to Whisper with a Groq/OpenAI key.
 
 ## Update failed
-Download the installer from GitHub Releases manually and run it.
+Download the package for your OS from <https://pocketpet-web.vercel.app/> (or GitHub Releases) manually and run it.

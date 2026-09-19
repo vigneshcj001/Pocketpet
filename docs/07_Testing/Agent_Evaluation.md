@@ -4,7 +4,7 @@ Runbook for `tests/agent-eval.mjs`.
 
 ```powershell
 $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=9222"
-& "$env:LOCALAPPDATA\PocketPet\pocketpet.exe"
+& "$env:LOCALAPPDATA\PocketPet\pocketpet.exe"   # macOS: open -a PocketPet · Linux: ./PocketPet*.AppImage
 node tests/agent-eval.mjs gemini gemini-3.6-flash
 node tests/agent-eval.mjs claude claude-opus-5
 ```

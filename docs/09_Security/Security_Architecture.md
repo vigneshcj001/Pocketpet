@@ -8,7 +8,7 @@
                                      [Pet's Chromium profile]──►[Websites]
 ```
 - Webviews are untrusted for secrets: no keys, CSP `default-src 'self'`, only the IPC origin allowed for `connect-src`.
-- Rust holds keys (Credential Manager), makes all provider calls, and enforces all gates.
+- Rust holds keys (OS keychain via Credential Manager on Windows, `keyring` crate elsewhere), makes all provider calls, and enforces all gates.
 - The agent's browser runs under a separate profile; websites never see the user's own sessions.
 - Website content is untrusted input to the model (data, not instructions).
 

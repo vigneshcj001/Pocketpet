@@ -29,6 +29,9 @@ Given/When/Then per feature. All must pass before a tagged release.
 - **Voice**: Given the Windows engine and speech enabled in Windows, when I press 🎤 and speak, then the text lands in the task box.
 
 ## Platform
-- **Installer**: Running the setup silently installs to `%LOCALAPPDATA%\PocketPet`, creates a Start Menu entry, and launches.
-- **Update**: Given a newer tagged release, when checking, then it is offered; install downloads from GitHub, launches the installer and exits.
+- **Installer (Windows)**: Running the setup silently installs to `%LOCALAPPDATA%\PocketPet`, creates a Start Menu entry, and launches.
+- **macOS**: Opening the DMG and dragging to Applications yields an app that launches after right-click → Open (unsigned); the pet appears on the main display; no Dock icon.
+- **Linux**: `chmod +x` + run the AppImage (or `apt install ./*.deb`) launches on X11/XWayland; the pet is click-through.
+- **Download page**: On https://pocketpet-web.vercel.app/ the visitor's OS card is marked and every button links to the matching asset of the latest release.
+- **Update**: Given a newer tagged release, when checking, then it is offered; on Windows install downloads the `-setup.exe` from GitHub, launches it and exits; on macOS/Linux the matching `.dmg` / `.AppImage` is downloaded and opened.
 - **Backup**: Export then import on a clean profile restores pets, names, colours, rules, schedules, history — and no keys.

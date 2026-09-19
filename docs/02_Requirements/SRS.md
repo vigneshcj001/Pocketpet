@@ -20,7 +20,7 @@ Version 0.1. Functional requirements are numbered FR-*; non-functional live in `
 ## 2. Task agent
 
 - FR-A1 Providers: claude (Anthropic Messages), openai, groq, gemini, deepseek, ollama, custom (OpenAI Chat Completions); per-provider base URL override; model list fetched from the provider.
-- FR-A2 API keys stored in Windows Credential Manager (`PocketPet/<provider>`); never persisted elsewhere; presence (not value) reported to the UI.
+- FR-A2 API keys stored in the OS keychain (`PocketPet/<provider>`: Windows Credential Manager, macOS Keychain, Linux Secret Service; `0600` file fallback when no keyring is available); never persisted elsewhere; presence (not value) reported to the UI.
 - FR-A3 Loop bounded by `max_turns`; SSE streaming with a non-streaming retry; `pause_turn` handled; usage → USD estimate; daily/task budget enforced.
 - FR-A4 Tools as listed in `04_Agents/Tool_Registry.md`; Claude additionally uses Anthropic server web tools.
 - FR-A5 Gates as listed in `05_AI/Guardrails.md`, enforced in Rust.
@@ -42,6 +42,8 @@ Version 0.1. Functional requirements are numbered FR-*; non-functional live in `
 
 ## 4. Distribution
 
-- FR-D1 NSIS per-user installer; run at startup via HKCU Run.
-- FR-D2 Update check against GitHub Releases; download from GitHub hosts only; installer launched and app exits.
+- FR-D0 Platform split: everything that inspects other apps' windows (window list, caption buttons, mischief, sit-on-active-window, fullscreen detection, Windows speech) is Windows-only and greyed out elsewhere; all other features are identical.
+- FR-D1 Windows: NSIS per-user installer, run at startup via HKCU Run. macOS: DMG, LaunchAgent. Linux: AppImage and deb, XDG autostart entry.
+- FR-D2 Update check against GitHub Releases; download from GitHub hosts only; the asset for the running OS/arch is chosen (`-setup.exe`, `_aarch64.dmg` / `_x64.dmg`, `.AppImage`); installer launched and app exits.
+- FR-D3 Download page at https://pocketpet-web.vercel.app/ lists all packages and links each to the latest release asset.
 - FR-D3 Crash logs written by a panic hook; logs folder and diagnostics text reachable from Settings.

@@ -7,6 +7,8 @@
 | Integration (offline) | agent loop with a fake OpenAI-compatible server (tool call → result → answer) | node fake server + CDP driver | before release |
 | E2E (live) | `tests/agent-eval.mjs` against Gemini and one more provider | manual, costs money | before release, after prompt/tool changes |
 | Manual | installer, tray, hotkeys, focus mode, breaks, games, voice, update | checklist in `Acceptance_Criteria.md` | before release |
+| Manual (macOS / Linux) | DMG / AppImage launch, Accessibility prompt, hotkeys, keychain, greyed-out window tricks, update asset choice | `Acceptance_Criteria.md` › Platform | before release |
+| Cross-compile check | `cargo check --target aarch64-apple-darwin` when a Mac or clang toolchain is available; otherwise CI is the first compile | — | every PR touching `src-tauri` |
 | Security | gate bypass attempts, secret fields, injection pages | `Security_Testing.md` | before release |
 | Performance | idle CPU, frame rate, task latency | `Performance_Testing.md` | before release |
 

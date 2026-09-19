@@ -1,6 +1,6 @@
 # Audit Logging
 
-Per task: `%LOCALAPPDATA%\PocketPet\tasks\<id>.log`, TSV lines `epoch<TAB>kind<TAB>text`.
+Per task: `<data dir>/tasks/<id>.log` (`%LOCALAPPDATA%\PocketPet` · `~/Library/Application Support/PocketPet` · `$XDG_DATA_HOME/PocketPet`), TSV lines `epoch<TAB>kind<TAB>text`.
 
 Logged kinds: task (the request), start, tool, result, note, plan, step, shot (label only), browser, confirm, ask, answer, error, cancelled. Not logged: delta (stream), usage, act (coordinates).
 
