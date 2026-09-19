@@ -9,7 +9,7 @@ Workflow: `.github/workflows/build.yml`. `permissions: contents: write` so the r
 | `test` | ubuntu-latest | — | `node --test tests/features.test.mjs` |
 | `build / windows` | windows-latest | `nsis` | `PocketPet_<v>_x64-setup.exe` |
 | `build / macos-aarch64` | macos-latest | `dmg` (`--target aarch64-apple-darwin`) | `PocketPet_<v>_aarch64.dmg` |
-| `build / macos-x64` | macos-13 | `dmg` (`--target x86_64-apple-darwin`) | `PocketPet_<v>_x64.dmg` |
+| `build / macos-x64` | macos-15-intel | `dmg` (`--target x86_64-apple-darwin`) | `PocketPet_<v>_x64.dmg` |
 | `build / linux` | ubuntu-22.04 | `appimage,deb` | `PocketPet_<v>_amd64.AppImage`, `.deb` |
 
 Each build job: checkout → stable Rust (+ target) → `Swatinem/rust-cache` keyed per job → Linux apt deps (webkit2gtk-4.1, appindicator, X11/XTest, dbus) → `cargo test --lib` → `cargo install tauri-cli ^2` → `cargo tauri build --bundles …` → `upload-artifact` → on tag `v*`: `softprops/action-gh-release` attaches the package to the release with generated notes. `fail-fast: false`, so one OS failing does not block the others.

@@ -132,7 +132,7 @@ cd src-tauri && cargo tauri build --bundles dmg            # or appimage,deb
 ```
 
 CI (`.github/workflows/build.yml`): JS tests once, then a matrix of
-`windows-latest` (NSIS), `macos-latest` (aarch64 DMG), `macos-13` (x64 DMG)
+`windows-latest` (NSIS), `macos-latest` (aarch64 DMG), `macos-15-intel` (x64 DMG)
 and `ubuntu-22.04` (AppImage + deb), each running `cargo test --lib` and
 `cargo tauri build`; tag `v*` publishes a GitHub Release with all packages,
 which the in-app update check reads
