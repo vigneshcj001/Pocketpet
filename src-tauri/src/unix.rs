@@ -295,12 +295,13 @@ pub mod startup {
 
     fn launcher() -> Option<auto_launch::AutoLaunch> {
         let exe = std::env::current_exe().ok()?;
-        // On macOS point at the .app bundle, not the binary inside it.
-        #[cfg(target_os = "macos")]
-        let exe = {
-            let bundle = exe.ancestors().find(|p| p.extension().map_or(false, |e| e == "app")).map(|p| p.to_path_buf());
-            bundle.unwrap_or(exe)
-        };
+        // LaunchAgent executes ProgramArguments[0], so macOS needs the binary,
+        // not the .app directory. AppImage's current_exe is a temporary mount.
+        #[cfg(target_os = "linux")]
+        let exe = std::env::var_os("APPIMAGE")
+            .map(std::path::PathBuf::from)
+            .filter(|p| p.is_absolute() && p.is_file())
+            .unwrap_or(exe);
         auto_launch::AutoLaunchBuilder::new()
             .set_app_name("PocketPet")
             .set_app_path(&exe.display().to_string())
@@ -338,6 +339,9 @@ pub mod startup {
                 "shift" => mods.push("shift"),
                 "win" | "super" | "meta" | "cmd" | "command" => mods.push("super"),
                 k => {
+                    if key.is_some() {
+                        return None;
+                    }
                     let code = match k {
                         k if k.len() == 1 && k.as_bytes()[0].is_ascii_alphabetic() => format!("Key{}", k.to_ascii_uppercase()),
                         k if k.len() == 1 && k.as_bytes()[0].is_ascii_digit() => format!("Digit{k}"),
@@ -425,6 +429,7 @@ pub mod startup {
             assert_eq!(parse_combo("P"), None, "no modifier: would eat typing");
             assert_eq!(parse_combo("Ctrl+"), None);
             assert_eq!(parse_combo(""), None);
+            assert_eq!(parse_combo("Ctrl+A+B"), None);
         }
     }
 }
@@ -443,19 +448,29 @@ pub mod secrets {
     }
 
     fn write_private(path: &std::path::Path, key: &str) -> Result<(), String> {
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+                .map_err(|e| e.to_string())?;
         }
-        std::fs::write(path, key).map_err(|e| e.to_string())?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        // Unlink first so an existing symlink is never followed. create_new
+        // fails safely if another file appears before we open it.
+        match std::fs::remove_file(path) {
+            Ok(()) => (),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+            Err(e) => return Err(e.to_string()),
         }
-        Ok(())
+        let mut file = std::fs::OpenOptions::new().write(true).create_new(true)
+            .mode(0o600).open(path).map_err(|e| e.to_string())?;
+        file.write_all(key.as_bytes()).map_err(|e| e.to_string())
     }
 
     pub fn store_key(provider_id: &str, key: &str) -> Result<(), String> {
+        if crate::agent::provider(provider_id).is_none() {
+            return Err("Unknown provider.".into());
+        }
         if let Some(e) = entry(provider_id) {
             if e.set_password(key).is_ok() {
                 let _ = std::fs::remove_file(fallback_path(provider_id));
@@ -466,6 +481,7 @@ pub mod secrets {
     }
 
     pub fn read_key(provider_id: &str) -> Option<String> {
+        crate::agent::provider(provider_id)?;
         let from_ring = entry(provider_id).and_then(|e| e.get_password().ok());
         let key = from_ring.or_else(|| std::fs::read_to_string(fallback_path(provider_id)).ok())?;
         let key = key.trim().to_string();
@@ -473,6 +489,9 @@ pub mod secrets {
     }
 
     pub fn delete_key(provider_id: &str) -> bool {
+        if crate::agent::provider(provider_id).is_none() {
+            return false;
+        }
         let ring = entry(provider_id).map(|e| e.delete_credential().is_ok()).unwrap_or(false);
         let file = std::fs::remove_file(fallback_path(provider_id)).is_ok();
         ring || file

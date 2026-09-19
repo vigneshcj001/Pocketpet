@@ -22,6 +22,7 @@ pub fn data_dir() -> PathBuf {
             .ok()
             .filter(|s| !s.is_empty())
             .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
             .unwrap_or_else(|| {
                 let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
                 PathBuf::from(home).join(".local").join("share")
