@@ -120,10 +120,13 @@ button.mini {
   color: var(--danger);
 }
 .keys li {
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(4, auto);
+  gap: 6px;
+  align-items: center;
 }
 .keys .name {
-  width: 80px;
+  grid-column: 1 / -1;
   font-weight: 600;
 }
 .keys input[type="password"] {
@@ -137,9 +140,12 @@ button.mini {
   font: inherit;
 }
 .keys .state {
+  grid-column: 1 / -1;
   font-size: 11.5px;
   color: var(--muted);
-  width: 100%;
+}
+.keys button {
+  padding: 5px 9px;
 }
 .keys .state.ok {
   color: #2a9d8f;
@@ -296,8 +302,98 @@ h2 .hint {
   font-variant-numeric: tabular-nums;
 }
 #task {
-  min-height: 62px;
+  min-height: 84px;
   max-height: 40vh;
+}
+/* Header: title and kill switch on one line, tabs wrap below. */
+.header-row {
+  margin-bottom: 4px;
+}
+h1 .mini,
+.header-row .mini {
+  margin-left: 0;
+}
+/* The compose card keeps its stacked labels: two columns are too tight there. */
+.compose label:not(.row),
+label:has(> .pair.tight) {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+.compose .pair > label {
+  flex: 1;
+  min-width: 0;
+}
+/* A hint that follows the label text inline (digest model, max steps). */
+label > .hint + input[type="text"] {
+  grid-column: 2;
+}
+/* Approval card follows you while the log scrolls; never lose the question. */
+.card.ask {
+  position: sticky;
+  top: calc(var(--header-h, 78px) + 8px);
+  z-index: 1;
+  background: var(--card);
+}
+.card.ask .wait {
+  margin-left: auto;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Log and answer scale with the window instead of a fixed 320 px. */
+.log {
+  max-height: max(200px, calc(100vh - 400px));
+}
+.answer {
+  max-height: max(160px, calc(100vh - 420px));
+  overflow: auto;
+}
+/* Keys: show/hide and test buttons. */
+.keys .eye {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+}
+.keys .state.testing {
+  color: var(--muted);
+}
+.keys .state.bad {
+  color: var(--danger);
+}
+/* History: search and per-row actions. */
+#historyFilter {
+  width: 100%;
+  font: inherit;
+  padding: 5px 10px;
+  margin: 2px 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+}
+#historyFilter:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.history .meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+}
+.history .meta .mini {
+  margin-left: 0;
+}
+.history .meta .tools {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 4px;
+}
+.history li.filtered-out {
+  display: none;
 }
 .hint.warn {
   color: var(--danger);

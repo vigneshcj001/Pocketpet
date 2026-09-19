@@ -37,15 +37,21 @@ export function createGames(api) {
     api.repaint();
   }
 
-  /** Hide & seek: the pet is only drawn while its box is open. */
+  /**
+   * Hide & seek: the pet is only drawn while its box is open. The class drives
+   * the CSS; the inline style is a belt-and-braces guard so nothing (bars,
+   * accessories, a stale stylesheet) can peek out from under the box.
+   */
   function setCovered(covered) {
     api.stage.classList.toggle("pet-game-covered", covered);
+    api.pet.style.visibility = covered ? "hidden" : "";
   }
 
   function restore(g) {
     document.removeEventListener("keydown", onKey, true);
     g.root.remove();
     api.stage.classList.remove("pet-games-active", "pet-game-covered");
+    api.pet.style.visibility = "";
     // A monitor might have been disconnected during a game.
     const b = api.getBounds();
     const size = api.getPet().size;

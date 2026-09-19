@@ -16,6 +16,7 @@ import {
   STORAGE_KEY,
 } from "./preferences.js";
 import { getPet } from "./pets/index.js";
+import { tintedSvg, customImageSvg, renderAccessoryNodes } from "./appearance.js";
 
 const { emit } = window.__TAURI__.event;
 const { invoke } = window.__TAURI__.core;
@@ -31,7 +32,12 @@ function save(patch) {
 // --- tabs --------------------------------------------------------------------
 
 for (const tab of document.querySelectorAll('[role="tab"]')) {
-  tab.addEventListener("click", () => showTab(tab.dataset.tab));
+  tab.addEventListener("click", () => {
+    clearFilter();
+    showTab(tab.dataset.tab);
+  });
+  // Lets the search view label each panel it pulls cards from.
+  document.querySelector(`[data-panel="${tab.dataset.tab}"]`)?.setAttribute("data-title", tab.textContent);
 }
 
 function showTab(name) {
@@ -129,9 +135,100 @@ function fill() {
   for (const key of Object.keys(settings.shortcuts)) if ($(`sc_${key}`)) $(`sc_${key}`).value = settings.shortcuts[key];
   $("updateCheck").checked = settings.agent.updateCheck;
   hints();
+  syncDependents();
+  checkShortcutConflicts();
   paintAvoidPreview();
   renderPets();
   renderCustomList();
+}
+
+// --- dependent fields ------------------------------------------------------------
+// Groups marked data-needs="<id>" fade out (and stop taking input) while the
+// switch or slider they depend on is off / zero.
+
+function syncDependents() {
+  for (const group of document.querySelectorAll("[data-needs]")) {
+    const master = $(group.dataset.needs);
+    const on = master.type === "checkbox" ? master.checked : Number(master.value) > 0;
+    group.classList.toggle("off", !on);
+    for (const control of group.querySelectorAll("input, select, button")) control.disabled = !on;
+  }
+}
+
+// --- search --------------------------------------------------------------------------
+// Filters cards across every tab by their visible text.
+
+const filterBox = $("filter");
+let noResults = null;
+
+function applyFilter() {
+  const q = filterBox.value.trim().toLowerCase();
+  document.body.classList.toggle("filtering", q.length > 0);
+  if (!q) {
+    for (const card of document.querySelectorAll(".card, [data-panel]")) card.classList.remove("filtered-out");
+    noResults?.remove();
+    return;
+  }
+  let any = false;
+  for (const panel of document.querySelectorAll("[data-panel]")) {
+    let hit = false;
+    for (const card of panel.querySelectorAll(".card")) {
+      const match = card.textContent.toLowerCase().includes(q);
+      card.classList.toggle("filtered-out", !match);
+      hit ||= match;
+    }
+    panel.classList.toggle("filtered-out", !hit);
+    any ||= hit;
+    if (hit && panel.dataset.panel === "dashboard") renderDashboard();
+  }
+  if (!any) {
+    noResults ??= Object.assign(document.createElement("p"), { className: "no-results" });
+    noResults.textContent = `Nothing matches "${filterBox.value.trim()}".`;
+    document.querySelector("main").append(noResults);
+  } else noResults?.remove();
+}
+
+function clearFilter() {
+  if (!filterBox.value) return;
+  filterBox.value = "";
+  applyFilter();
+}
+
+filterBox.addEventListener("input", applyFilter);
+filterBox.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") clearFilter();
+});
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+    e.preventDefault();
+    filterBox.focus();
+    filterBox.select();
+  }
+});
+
+// --- per-card reset ---------------------------------------------------------------------
+// Every card whose controls map to plain settings gets a "Reset" that puts
+// just those back to their defaults.
+
+for (const card of document.querySelectorAll(".card")) {
+  const ids = [...card.querySelectorAll("[id]")].map((n) => n.id).filter((id) => id in FIELDS);
+  const avoid = card.querySelector("#avoidEnabled") != null;
+  if (!ids.length && !avoid) continue;
+  const h2 = card.querySelector("h2");
+  if (!h2) continue;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "reset-section";
+  button.textContent = "Reset";
+  button.title = "Reset this section to its defaults";
+  button.addEventListener("click", () => {
+    const patch = {};
+    for (const id of ids) patch[id] = DEFAULTS[id];
+    if (avoid) patch.avoidArea = { ...DEFAULTS.avoidArea };
+    save(patch);
+    fill();
+  });
+  h2.append(button);
 }
 
 for (const [id, prop] of Object.entries(FIELDS)) {
@@ -140,6 +237,7 @@ for (const [id, prop] of Object.entries(FIELDS)) {
     if (NUMERIC.has(id)) v = Number(v);
     save({ [id]: v });
     hints();
+    syncDependents();
     if (id === "pet" || id === "companion") fill();
   });
 }
@@ -195,10 +293,30 @@ const SLOT_LABEL = { hat: "Hat (top)", face: "Face", neck: "Neck", back: "Back",
 /** The pet's own body colour, so the picker starts somewhere sensible. */
 const baseColor = (id) => getPet(id)?.tint?.[0] ?? "#f5a94c";
 
+/** Sprite for any pet id, built-in or custom picture. */
+function spriteFor(id) {
+  const custom = settings.customPets.find((p) => p.id === id);
+  return custom ? { id, svg: customImageSvg(custom.image) } : getPet(id);
+}
+
+function renderPreview(id) {
+  settings = readSettings();
+  const p = spriteFor(id);
+  const sprite = $("previewSprite");
+  const key = `${id}|${settings.colors[id] ?? ""}`;
+  if (sprite.dataset.key !== key) {
+    sprite.dataset.key = key;
+    sprite.innerHTML = tintedSvg(p, settings.colors[id]);
+  }
+  renderAccessoryNodes($("previewAccessories"), settings.accessories[id] ?? []);
+  $("previewPet").dataset.personality = settings.personalities[id] ?? "calm";
+}
+
 function renderPets() {
   const id = $("customisePet").value || settings.pet;
   const base = allPets().find((p) => p.id === id);
   $("customiseWho").textContent = base ? `· ${base.label}` : "";
+  renderPreview(id);
   $("petName").value = settings.petNames[id] ?? "";
   $("personality").value = settings.personalities[id] ?? "calm";
   const custom = settings.colors[id];
@@ -278,6 +396,7 @@ function renderAccessories(id) {
 function setAccessories(id, items) {
   save({ accessories: { [id]: items } });
   renderAccessories(id);
+  renderPreview(id);
 }
 
 function addAccessory(id, emoji) {
@@ -297,6 +416,7 @@ function updateAccessory(id, index, patch) {
   save({ accessories: { [id]: items } });
   settings = readSettings();
   $("accessoryCount").textContent = `· ${items.length}/${MAX_ACCESSORIES}`;
+  renderPreview(id);
 }
 
 $("customisePet").addEventListener("input", renderPets);
@@ -305,11 +425,16 @@ $("petName").addEventListener("change", () => {
   save({ petNames: { [id]: $("petName").value } });
   fill();
 });
-$("personality").addEventListener("input", () => save({ personalities: { [$("customisePet").value]: $("personality").value } }));
+$("personality").addEventListener("input", () => {
+  const id = $("customisePet").value;
+  save({ personalities: { [id]: $("personality").value } });
+  renderPreview(id);
+});
 $("color").addEventListener("input", () => {
   const id = $("customisePet").value;
   save({ colors: { [id]: $("color").value } });
   $("colorHint").textContent = $("color").value;
+  renderPreview(id);
 });
 $("colorReset").addEventListener("click", () => {
   const id = $("customisePet").value;
@@ -392,13 +517,41 @@ function renderCustomList() {
 
 // --- shortcuts ----------------------------------------------------------------
 
+/** Two actions on one combination: only the first registers, so flag both. */
+function checkShortcutConflicts() {
+  const seen = new Map();
+  const clashes = new Set();
+  for (const key of Object.keys(DEFAULTS.shortcuts)) {
+    const combo = ($(`sc_${key}`)?.value ?? "").trim().toLowerCase();
+    if (!combo) continue;
+    if (seen.has(combo)) {
+      clashes.add(seen.get(combo));
+      clashes.add(key);
+    } else seen.set(combo, key);
+  }
+  for (const key of Object.keys(DEFAULTS.shortcuts)) $(`sc_${key}`)?.classList.toggle("conflict", clashes.has(key));
+  const status = $("shortcutStatus");
+  status.hidden = clashes.size === 0;
+  if (clashes.size) status.textContent = "Two actions share a combination — only one of them will work. Change one.";
+}
+
+function setShortcut(key, combo) {
+  $(`sc_${key}`).value = combo;
+  save({ shortcuts: { [key]: combo } });
+  checkShortcutConflicts();
+}
+
+for (const button of document.querySelectorAll(".sc-clear")) {
+  button.addEventListener("click", () => setShortcut(button.dataset.clear, ""));
+}
+
 for (const key of Object.keys(DEFAULTS.shortcuts)) {
   const input = $(`sc_${key}`);
+  if (!input) continue;
   input.addEventListener("keydown", (e) => {
     e.preventDefault();
     if (e.key === "Backspace" || e.key === "Delete") {
-      input.value = "";
-      save({ shortcuts: { [key]: "" } });
+      setShortcut(key, "");
       return;
     }
     if (["Control", "Alt", "Shift", "Meta"].includes(e.key)) return;
@@ -409,9 +562,7 @@ for (const key of Object.keys(DEFAULTS.shortcuts)) {
     }
     let k = e.key.length === 1 ? e.key.toUpperCase() : e.key;
     if (k === " ") k = "Space";
-    const combo = [...mods, k].join("+");
-    input.value = combo;
-    save({ shortcuts: { [key]: combo } });
+    setShortcut(key, [...mods, k].join("+"));
   });
 }
 

@@ -33,17 +33,45 @@ header {
   top: 0;
   z-index: 2;
   background: var(--bg);
-  padding: 12px 18px 0;
+  padding: 10px 18px 0;
   border-bottom: 1px solid var(--line);
 }
-h1 {
-  font-size: 18px;
-  margin: 0 0 8px;
+.header-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
 }
+.header-row h1 {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+h1 {
+  font-size: 17px;
+  margin: 0;
+}
+input[type="search"] {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+}
+input[type="search"]:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+/* Tabs wrap onto a second row instead of scrolling sideways in a narrow window. */
 nav[role="tablist"] {
   display: flex;
-  gap: 2px;
-  overflow-x: auto;
+  flex-wrap: wrap;
+  gap: 0 2px;
 }
 nav[role="tablist"] button {
   appearance: none;
@@ -51,10 +79,13 @@ nav[role="tablist"] button {
   background: none;
   color: var(--muted);
   font: inherit;
-  padding: 7px 10px;
+  padding: 6px 9px;
   border-bottom: 2px solid transparent;
   cursor: pointer;
   white-space: nowrap;
+}
+nav[role="tablist"] button:hover {
+  color: var(--ink);
 }
 nav[role="tablist"] button[aria-selected="true"] {
   color: var(--ink);
@@ -63,12 +94,62 @@ nav[role="tablist"] button[aria-selected="true"] {
 main {
   padding: 14px 18px 20px;
 }
+/* Search: every panel shows, cards that don't match are hidden. */
+body.filtering [data-panel] {
+  display: block !important;
+}
+body.filtering nav[role="tablist"] {
+  opacity: 0.5;
+}
+body.filtering .card.filtered-out {
+  display: none;
+}
+body.filtering [data-panel]::before {
+  content: attr(data-title);
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 4px 0 6px;
+}
+body.filtering [data-panel].filtered-out {
+  display: none !important;
+}
+.no-results {
+  color: var(--muted);
+  text-align: center;
+  padding: 24px 0;
+}
 h2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
   margin: 0 0 8px;
+}
+h2 .hint {
+  text-transform: none;
+  letter-spacing: 0;
+}
+h2 .reset-section {
+  margin-left: auto;
+  padding: 1px 8px;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+  visibility: hidden;
+}
+.card:hover h2 .reset-section,
+.card:focus-within h2 .reset-section {
+  visibility: visible;
+}
+h2 .reset-section:hover {
+  color: var(--ink);
 }
 h3 {
   font-size: 12.5px;
@@ -84,16 +165,61 @@ h3 {
 .card.danger {
   border-color: color-mix(in srgb, var(--danger) 40%, var(--line));
 }
+/* Field rows: text on the left, control on the right. Sliders take the whole
+   next line with their value shown to the right of the label. */
 label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(140px, 46%);
+  align-items: center;
+  gap: 3px 10px;
+  margin: 6px 0;
+  min-height: 30px;
+}
+label > .hint {
+  grid-column: 2;
+  justify-self: end;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+label > input[type="range"] {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+label > select,
+label > input[type="text"],
+label > input[type="number"],
+label > input[type="time"],
+label > .pair {
+  grid-column: 2;
+}
+/* Long option text or big controls: back to label-above-control. */
+label.stack,
+label:has(textarea) {
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 4px;
-  margin: 8px 0;
+}
+label.stack > .hint {
+  align-self: flex-end;
+}
+.grid2 label {
+  grid-template-columns: auto minmax(0, 1fr);
 }
 label.row {
+  display: flex;
   flex-direction: row;
   align-items: center;
   gap: 8px;
+  min-height: 0;
+}
+/* Fields that only matter when a switch above them is on. */
+[data-needs].off {
+  opacity: 0.45;
+  pointer-events: none;
+}
+[data-needs] {
+  transition: opacity 0.15s;
 }
 .pair {
   display: flex;
@@ -128,6 +254,28 @@ input[type="time"] {
 }
 input.shortcut:focus {
   outline: 2px solid var(--accent);
+}
+input.shortcut.conflict {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.sc-clear {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  line-height: 1;
+}
+.hint.warn {
+  color: var(--danger);
+}
+.pair.tight {
+  gap: 4px;
+}
+.pair.tight > input {
+  flex: 1;
+  min-width: 0;
+}
+.pair.tight > button {
+  flex: 0 0 auto;
 }
 button {
   font: inherit;
@@ -267,6 +415,69 @@ button:hover {
 .accessories-list input[type="range"] {
   width: 90px;
 }
+/* --- live sprite preview on the Pets tab -------------------------------- */
+.pet-preview {
+  --pet-size: 96px;
+  --facing: 1;
+  display: flex;
+  justify-content: center;
+  padding: 10px 0 6px;
+  margin-bottom: 4px;
+  border-radius: 10px;
+  background: radial-gradient(ellipse at 50% 100%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%);
+}
+.pet-preview .pet {
+  position: relative;
+  width: var(--pet-size);
+  height: var(--pet-size);
+}
+.pet-preview .sprite,
+.pet-preview .sprite svg,
+.pet-preview .custom-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.pet-preview .sprite svg {
+  overflow: visible;
+}
+.pet-preview .custom-img {
+  object-fit: contain;
+  -webkit-user-drag: none;
+}
+.pet-preview .accessories {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.pet-preview .acc {
+  position: absolute;
+  font-size: calc(var(--pet-size) * 0.3 * var(--acc-size, 1));
+  line-height: 1;
+  translate: calc(-50% + var(--acc-x, 0%)) calc(-50% + var(--acc-y, 0%));
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3));
+}
+.pet-preview .acc-hat  { left: 50%; top: 4%; }
+.pet-preview .acc-face { left: 50%; top: 34%; }
+.pet-preview .acc-neck { left: 50%; top: 60%; }
+.pet-preview .acc-paw  { left: calc(50% + 32% * var(--facing, 1)); top: 64%; }
+.pet-preview .acc-back { left: calc(50% - 30% * var(--facing, 1)); top: 48%; z-index: -1; opacity: 0.9; }
+.pet-preview .p-eye {
+  transform-origin: 50% 50%;
+  transform-box: fill-box;
+  animation: preview-blink 4s infinite;
+}
+.pet-preview .pet[data-personality="sleepy"] .p-eye {
+  animation-duration: 2.4s;
+}
+@keyframes preview-blink {
+  0%, 94%, 100% { transform: scaleY(1); }
+  97% { transform: scaleY(0.1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pet-preview .p-eye { animation: none; }
+}
+
 kbd {
   font: inherit;
   padding: 1px 5px;

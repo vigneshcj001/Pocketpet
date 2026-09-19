@@ -14,7 +14,10 @@
          or sends something pauses here for your approval. Keys never touch
          this page: they go straight to Credential Manager. -->
     <header>
-      <h1>Ask me to do something <button type="button" id="kill" class="mini danger-btn" title="Stop every task and close the pet's browser">⏻ Stop all</button></h1>
+      <div class="header-row">
+        <h1>Ask me to do something</h1>
+        <button type="button" id="kill" class="mini danger-btn" title="Stop every task and close the pet's browser">⏻ Stop all</button>
+      </div>
       <nav id="tabs" role="tablist">
         <button role="tab" data-tab="run" aria-selected="true">Task</button>
         <button role="tab" data-tab="history">History</button>
@@ -109,7 +112,8 @@
       <!-- ================= History ================= -->
       <section data-panel="history" hidden>
         <div class="card">
-          <h2>Recent tasks</h2>
+          <h2>Recent tasks <span class="h2-tools"><span class="hint" id="historyCount"></span></span></h2>
+          <input type="search" id="historyFilter" placeholder="Search tasks…" aria-label="Search task history" autocomplete="off" />
           <ul id="history" class="list history"></ul>
           <button type="button" id="clearHistory">Clear history</button>
         </div>
@@ -120,7 +124,7 @@
         <div class="card">
           <h2>Scheduled tasks</h2>
           <p class="hint">The pet runs these on its own while PocketPet is open and delivers the answer in its bubble and a notification.</p>
-          <label>Task <input type="text" id="schedTask" maxlength="600" placeholder="Summarise today's top three tech headlines with links." /></label>
+          <label class="stack">Task <input type="text" id="schedTask" maxlength="600" placeholder="Summarise today's top three tech headlines with links." /></label>
           <div class="pair">
             <label>At <input type="time" id="schedTime" value="09:00" /></label>
             <label>On
@@ -159,13 +163,13 @@
         </div>
         <div class="card">
           <h2>Local / custom servers</h2>
-          <label>Ollama URL <input type="text" id="url_ollama" placeholder="http://localhost:11434/v1" /></label>
-          <label>Custom OpenAI-compatible URL <input type="text" id="url_custom" placeholder="http://localhost:1234/v1 (LM Studio, vLLM, llama.cpp…)" /></label>
+          <label class="stack">Ollama URL <input type="text" id="url_ollama" placeholder="http://localhost:11434/v1" /></label>
+          <label class="stack">Custom OpenAI-compatible URL <input type="text" id="url_custom" placeholder="http://localhost:1234/v1 (LM Studio, vLLM, llama.cpp…)" /></label>
         </div>
         <div class="card">
           <h2>Model behaviour</h2>
           <label class="row"><input type="checkbox" id="stream" /> Stream answers as they are written</label>
-          <label>Cheaper "digest" model for long page text <span class="hint">(same provider; empty = off)</span>
+          <label class="stack">Cheaper "digest" model for long page text <span class="hint">(same provider; empty = off)</span>
             <input type="text" id="digestModel" placeholder="e.g. gemini-3.5-flash-lite, gpt-4o-mini, claude-haiku-4-5" />
           </label>
           <p class="hint">Long tool outputs are condensed by this model before the main one reads them — roughly 3× cheaper on browser-heavy tasks.</p>

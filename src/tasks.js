@@ -73,7 +73,10 @@ async function loadProviders() {
   }
   const sel = $("provider");
   sel.innerHTML = "";
-  for (const p of providers) sel.add(new Option(LABEL[p.id] ?? p.id, p.id));
+  for (const p of providers) {
+    const ready = p.has_key || !p.needs_key;
+    sel.add(new Option(`${ready ? "🔑" : "⚠"} ${LABEL[p.id] ?? p.id}${ready ? "" : " — no key"}`, p.id));
+  }
   sel.value = settings.agent.provider;
   onProviderChange(false);
 }
@@ -132,9 +135,23 @@ function renderKeys() {
     input.type = "password";
     input.placeholder = p.has_key ? "•••••••• (saved) — paste a new key to replace" : "Paste API key";
     input.autocomplete = "off";
+    const eye = document.createElement("button");
+    eye.type = "button";
+    eye.className = "eye";
+    eye.textContent = "👁";
+    eye.title = "Show / hide what you pasted";
+    eye.addEventListener("click", () => {
+      input.type = input.type === "password" ? "text" : "password";
+      eye.textContent = input.type === "password" ? "👁" : "🙈";
+    });
     const saveBtn = document.createElement("button");
     saveBtn.type = "button";
     saveBtn.textContent = "Save";
+    const test = document.createElement("button");
+    test.type = "button";
+    test.textContent = "Test";
+    test.title = "Ask the provider for its model list with the saved key";
+    test.disabled = !p.has_key;
     const del = document.createElement("button");
     del.type = "button";
     del.textContent = "Remove";
@@ -142,6 +159,21 @@ function renderKeys() {
     const state = document.createElement("span");
     state.className = `state ${p.has_key ? "ok" : ""}`;
     state.textContent = p.has_key ? "Key saved." : `No key. ${KEY_HINT[p.id] ?? ""}`;
+    test.addEventListener("click", async () => {
+      state.className = "state testing";
+      state.textContent = "Testing…";
+      test.disabled = true;
+      try {
+        const ids = await invoke("agent_models", { provider: p.id, baseUrl: settings.agent.baseUrls[p.id] ?? "" });
+        state.className = "state ok";
+        state.textContent = `Key works — ${ids.length} model${ids.length === 1 ? "" : "s"} available.`;
+      } catch (err) {
+        state.className = "state bad";
+        state.textContent = `Key rejected: ${String(err).slice(0, 160)}`;
+      } finally {
+        test.disabled = false;
+      }
+    });
     saveBtn.addEventListener("click", async () => {
       const key = input.value.trim();
       if (!key) return;
@@ -159,7 +191,7 @@ function renderKeys() {
       await loadProviders();
       renderKeys();
     });
-    li.append(name, input, saveBtn, del, state);
+    li.append(name, input, eye, saveBtn, test, del, state);
     list.append(li);
   }
   $("url_ollama").value = settings.agent.baseUrls.ollama ?? "";
@@ -374,6 +406,10 @@ function setState(state, text) {
 let elapsedTimer = 0;
 function paintElapsed() {
   $("elapsed").textContent = current ? mmss(Date.now() - current.startedAt) : "";
+  // While the pet is blocked on you, count how long it has been waiting.
+  if (current?.waitingSince) {
+    $("askWait").textContent = `waiting ${mmss(Date.now() - current.waitingSince)}`;
+  }
 }
 
 function setRunning(on) {
@@ -389,6 +425,8 @@ function setRunning(on) {
   } else {
     $("pause").textContent = "Pause";
     hideAsk();
+    // Idle with nothing typed and nothing answered: offer the examples again.
+    if (!$("task").value.trim() && $("answerCard").hidden) $("examplesCard").open = true;
   }
   paintElapsed();
 }
@@ -511,6 +549,16 @@ $("kill").addEventListener("click", () => {
 function showAsk(kind, text, host) {
   $("askCard").hidden = false;
   $("askTitle").textContent = kind === "confirm" ? "Approve this step?" : "The pet has a question";
+  if (current) current.waitingSince = Date.now();
+  // Setting textContent above dropped the timer span; put it back.
+  let wait = $("askWait");
+  if (!wait) {
+    wait = document.createElement("span");
+    wait.id = "askWait";
+    wait.className = "wait";
+  }
+  wait.textContent = "";
+  $("askTitle").append(wait);
   $("askText").textContent = text;
   $("askConfirm").hidden = kind !== "confirm";
   $("askRules").hidden = kind !== "confirm" || !host;
@@ -527,6 +575,7 @@ function showAsk(kind, text, host) {
 }
 function hideAsk() {
   $("askCard").hidden = true;
+  if (current) current.waitingSince = 0;
 }
 function reply(text) {
   if (!current) return;
@@ -789,37 +838,80 @@ function renderHistory() {
   const list = $("history");
   list.innerHTML = "";
   const items = [...settings.tasks].reverse();
+  $("historyCount").textContent = items.length ? `${items.length}` : "";
   if (!items.length) list.innerHTML = '<li class="hint">No tasks yet.</li>';
-  for (const t of items) {
+  const mini = (text, title, onClick) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "mini";
+    b.textContent = text;
+    b.title = title;
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      onClick();
+    });
+    return b;
+  };
+  const open = (t) => {
+    $("task").value = t.task;
+    autosize();
+    if (t.status === "done" && t.answer) {
+      $("answerCard").hidden = false;
+      renderAnswer(t.answer);
+    }
+    showTab("run");
+  };
+  items.forEach((t, i) => {
     const li = document.createElement("li");
+    li.dataset.text = `${t.task} ${t.provider} ${t.model ?? ""} ${t.status}`.toLowerCase();
     const title = document.createElement("div");
     title.textContent = t.task;
     const meta = document.createElement("div");
     meta.className = `meta ${t.status === "error" ? "status-error" : ""}`;
     meta.textContent = `${new Date(t.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} · ${t.provider}${t.model ? " · " + t.model : ""} · ${t.status}`;
-    const logBtn = document.createElement("button");
-    logBtn.type = "button";
-    logBtn.className = "mini";
-    logBtn.textContent = "Log";
-    logBtn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const ok = await invoke("open_task_log", { id: t.id }).catch(() => false);
-      if (!ok) $("status").textContent = "No log file for that task.";
-    });
-    meta.append(" ", logBtn);
+    const tools = document.createElement("span");
+    tools.className = "tools";
+    tools.append(
+      mini("▶ Run again", "Run this task again", () => {
+        open(t);
+        submitTask(t.task, false);
+      }),
+    );
+    // Only the newest task still has its context on the Rust side.
+    if (i === 0 && t.status === "done") {
+      tools.append(
+        mini("↩ Follow up", "Ask something more about this answer", () => {
+          open(t);
+          $("followBtn").click();
+        }),
+      );
+    }
+    tools.append(
+      mini("Log", "Open this task's log file", async () => {
+        const ok = await invoke("open_task_log", { id: t.id }).catch(() => false);
+        if (!ok) $("status").textContent = "No log file for that task.";
+      }),
+    );
+    meta.append(tools);
     li.append(title, meta);
-    li.addEventListener("click", () => {
-      $("task").value = t.task;
-      autosize();
-      if (t.status === "done" && t.answer) {
-        $("answerCard").hidden = false;
-        renderAnswer(t.answer);
-      }
-      showTab("run");
-    });
+    li.addEventListener("click", () => open(t));
     list.append(li);
-  }
+  });
+  filterHistory();
 }
+
+function filterHistory() {
+  const q = $("historyFilter").value.trim().toLowerCase();
+  let shown = 0;
+  for (const li of $("history").querySelectorAll("li[data-text]")) {
+    const hit = !q || li.dataset.text.includes(q);
+    li.classList.toggle("filtered-out", !hit);
+    shown += hit;
+  }
+  const total = $("history").querySelectorAll("li[data-text]").length;
+  $("historyCount").textContent = total ? (q ? `${shown} of ${total}` : `${total}`) : "";
+}
+$("historyFilter").addEventListener("input", filterHistory);
 
 $("clearHistory").addEventListener("click", () => {
   save({ tasks: [] });
@@ -841,6 +933,11 @@ for (const e of EXAMPLES) {
   $("examples").append(b);
 }
 $("log").innerHTML = '<li class="empty">Nothing running yet — type an errand above and press Go.</li>';
+// The sticky approval card sits just under the header, whose height changes
+// when the tabs wrap.
+new ResizeObserver(([entry]) => {
+  document.documentElement.style.setProperty("--header-h", `${Math.round(entry.contentRect.height + 12)}px`);
+}).observe(document.querySelector("header"));
 $("mic").hidden = !settings.agent.voice;
 window.addEventListener("storage", () => {
   settings = readSettings();

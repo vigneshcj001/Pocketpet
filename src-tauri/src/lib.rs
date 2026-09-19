@@ -345,8 +345,8 @@ async fn open_settings(app: AppHandle) -> Result<(), String> {
     }
     WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
         .title("PocketPet settings")
-        .inner_size(400.0, 640.0)
-        .resizable(false)
+        .inner_size(440.0, 680.0)
+        .min_inner_size(380.0, 480.0)
         .maximizable(false)
         .build()
         .map(|_| ())
