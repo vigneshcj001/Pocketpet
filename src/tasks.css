@@ -51,17 +51,28 @@ button.mini {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 220px;
+  max-height: 320px;
   overflow: auto;
   font-size: 12.5px;
+  overscroll-behavior: contain;
 }
 .log li {
   display: grid;
-  grid-template-columns: 18px 1fr;
+  grid-template-columns: 18px 1fr auto;
   gap: 6px;
   padding: 4px 0;
   border-top: 1px solid var(--line);
   word-break: break-word;
+  animation: rise 0.18s ease-out;
+}
+.log li time {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  padding-top: 1px;
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(3px); }
 }
 .log li:first-child {
   border-top: 0;
@@ -79,6 +90,8 @@ button.mini {
 .log li.empty {
   color: var(--muted);
   display: block;
+  padding: 10px 0 6px;
+  text-align: center;
 }
 .answer {
   white-space: pre-wrap;
@@ -153,12 +166,18 @@ code {
   user-select: text;
 }
 .plan {
-  margin: 0;
-  padding-left: 22px;
+  margin: 0 0 8px;
+  padding: 6px 10px 6px 28px;
   font-size: 13px;
+  border-radius: 8px;
+  background: var(--bg);
 }
 .plan li {
   padding: 3px 0;
+}
+.plan li[data-status="doing"]::after {
+  content: " …";
+  color: var(--accent);
 }
 .plan li[data-status="doing"] {
   font-weight: 600;
@@ -177,8 +196,14 @@ code {
 #shotWrap {
   margin-top: 8px;
 }
+#shotWrap summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
 #shot {
   width: 100%;
+  margin-top: 6px;
   border-radius: 8px;
   border: 1px solid var(--line);
 }
@@ -251,4 +276,106 @@ h1 .mini.danger-btn {
 }
 @keyframes blink {
   to { visibility: hidden; }
+}
+
+/* --- task tab layout --------------------------------------------------------- */
+
+h2 .h2-tools {
+  float: right;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+h2 .h2-tools .mini {
+  margin-left: 0;
+}
+h2 .hint {
+  font-size: 11.5px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+#task {
+  min-height: 62px;
+  max-height: 40vh;
+}
+.hint.warn {
+  color: var(--danger);
+}
+.actions kbd {
+  font-size: 11px;
+  padding: 0 4px;
+}
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.state .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.state[data-state="running"] .dot {
+  background: var(--accent);
+  animation: pulse-dot 1.1s ease-in-out infinite;
+}
+.state[data-state="waiting"] .dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.state[data-state="paused"] .dot {
+  background: #3b82c4;
+}
+.state[data-state="done"] .dot {
+  background: #2a9d8f;
+}
+.state[data-state="error"] .dot {
+  background: var(--danger);
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.75); }
+}
+.card.ask {
+  animation: rise 0.2s ease-out;
+}
+details.card > summary {
+  cursor: pointer;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  list-style: none;
+}
+details.card > summary::before {
+  content: "▸ ";
+}
+details.card[open] > summary::before {
+  content: "▾ ";
+}
+details.card > summary::-webkit-details-marker {
+  display: none;
+}
+.examples .chips {
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+.pair.actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.pair.actions button:disabled:hover {
+  border-color: var(--line);
+}
+@media (prefers-reduced-motion: reduce) {
+  .log li, .card.ask { animation: none; }
+  .state .dot { animation: none; }
+}
+[hidden] {
+  display: none !important;
+}
+#askRules > * {
+  flex: 0 0 auto;
 }

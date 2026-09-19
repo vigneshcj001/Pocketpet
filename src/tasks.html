@@ -28,7 +28,7 @@
     <main>
       <!-- ================= Task ================= -->
       <section data-panel="run">
-        <div class="card">
+        <div class="card compose">
           <div class="pair">
             <label>Provider <select id="provider"></select></label>
             <label>Model
@@ -48,15 +48,16 @@
           </label>
           <label class="row" id="followRow" hidden><input type="checkbox" id="followUp" /> Continue the previous task (keeps its context)</label>
           <div class="pair actions">
-            <button type="button" id="run" class="primary">Go</button>
+            <button type="button" id="run" class="primary" title="Ctrl+Enter">Go</button>
             <button type="button" id="pause" disabled>Pause</button>
             <button type="button" id="cancel" disabled>Cancel</button>
-            <span class="hint" id="status"></span>
+            <span class="hint" id="status"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> to go</span>
           </div>
           <ol id="queue" class="queue" hidden></ol>
         </div>
 
-        <!-- Asked something, or waiting for approval -->
+        <!-- Asked something, or waiting for approval. Sits right under the
+             form so it is visible without scrolling. -->
         <div class="card ask" id="askCard" hidden>
           <h2 id="askTitle">The pet needs you</h2>
           <p id="askText"></p>
@@ -75,26 +76,34 @@
           <p class="hint">You can also do the step yourself in the browser window, then answer "done".</p>
         </div>
 
-        <div class="card" id="planCard" hidden>
-          <h2>Plan</h2>
-          <ol id="plan" class="plan"></ol>
-        </div>
-
-        <div class="card">
-          <h2>Progress <span class="hint" id="spend"></span></h2>
-          <ol id="log" class="log" aria-live="polite"></ol>
-          <div id="shotWrap" hidden><img id="shot" alt="Latest screenshot from the browser" /></div>
-        </div>
-
         <div class="card" id="answerCard" hidden>
-          <h2>Answer <button type="button" id="copy" class="mini">Copy</button> <button type="button" id="speak" class="mini">🔊 Read aloud</button></h2>
+          <h2>Answer
+            <span class="h2-tools">
+              <button type="button" id="copy" class="mini">Copy</button>
+              <button type="button" id="speak" class="mini">🔊 Read aloud</button>
+              <button type="button" id="followBtn" class="mini">↩ Follow up</button>
+            </span>
+          </h2>
           <div id="answer" class="answer"></div>
         </div>
 
-        <div class="card">
-          <h2>Try</h2>
-          <div class="chips" id="examples"></div>
+        <div class="card progress" id="progressCard">
+          <h2>
+            <span class="state" id="stateChip" data-state="idle"><span class="dot"></span><span id="stateText">Idle</span></span>
+            <span class="h2-tools"><span class="hint" id="elapsed"></span><span class="hint" id="spend"></span></span>
+          </h2>
+          <ol id="plan" class="plan" hidden></ol>
+          <ol id="log" class="log" aria-live="polite"></ol>
+          <details id="shotWrap" hidden>
+            <summary>Latest screenshot</summary>
+            <img id="shot" alt="Latest screenshot from the browser" />
+          </details>
         </div>
+
+        <details class="card examples" id="examplesCard" open>
+          <summary>Try one of these</summary>
+          <div class="chips" id="examples"></div>
+        </details>
       </section>
 
       <!-- ================= History ================= -->

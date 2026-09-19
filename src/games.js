@@ -37,10 +37,15 @@ export function createGames(api) {
     api.repaint();
   }
 
+  /** Hide & seek: the pet is only drawn while its box is open. */
+  function setCovered(covered) {
+    api.stage.classList.toggle("pet-game-covered", covered);
+  }
+
   function restore(g) {
     document.removeEventListener("keydown", onKey, true);
     g.root.remove();
-    api.stage.classList.remove("pet-games-active");
+    api.stage.classList.remove("pet-games-active", "pet-game-covered");
     // A monitor might have been disconnected during a game.
     const b = api.getBounds();
     const size = api.getPet().size;
@@ -241,7 +246,7 @@ export function createGames(api) {
     const g = game;
     for (const box of g.boxes) place(box.node, box.x, box.y, g.boxSize, g.boxSize);
     const hidingBox = g.boxes[g.hiding];
-    petAt(hidingBox.x + (g.boxSize - g.size) / 2, hidingBox.y + g.boxSize - g.size - 4);
+    petAt(hidingBox.x + (g.boxSize - g.size) / 2, hidingBox.y + (g.boxSize - g.size) / 2);
   }
 
   function nextHideRound() {
@@ -262,6 +267,7 @@ export function createGames(api) {
     g.boxes[g.hiding].node.textContent = "Here I am!";
     g.status.textContent = `Round ${g.round} / 5 · Found ${g.score} · Watch where I hide…`;
     api.setAnim("idle");
+    setCovered(false);
     drawBoxes();
   }
 
@@ -284,6 +290,7 @@ export function createGames(api) {
     for (const box of g.boxes) box.node.disabled = true;
     g.boxes[g.hiding].node.classList.add("pet-game-box-open", "pet-game-box-correct");
     g.boxes[g.hiding].node.textContent = correct ? "Found me!" : "Over here!";
+    setCovered(false);
     g.status.textContent = `${correct ? "Found me!" : "I was over here!"} · ${g.score} / ${g.round} found`;
     g.phase = "reveal";
     g.remaining = 1.4;
@@ -319,6 +326,7 @@ export function createGames(api) {
       const box = g.boxes[g.hiding].node;
       box.classList.remove("pet-game-box-open");
       box.textContent = "?";
+      setCovered(true);
       g.phase = "covered";
       g.remaining = 0.45;
       g.status.textContent = `Round ${g.round} / 5 · Follow my box…`;

@@ -3,7 +3,12 @@
 .pet-games-active > #shadow,
 .pet-games-active > #buddy,
 .pet-games-active > #hearts { visibility: hidden; }
-.pet-games-active > #pet > .bubble { visibility: hidden; }
+.pet-games-active > #pet > .bubble,
+.pet-games-active > #pet > .hunger,
+.pet-games-active > #countdown { visibility: hidden; }
+/* Hide & seek: once the lid closes the pet must give nothing away (bars,
+   hats, tails), so it is fully hidden until the reveal. */
+.pet-games-active.pet-game-covered > #pet { visibility: hidden; }
 
 .pet-game { position: absolute; inset: 0; pointer-events: none; }
 .pet-game-panel {

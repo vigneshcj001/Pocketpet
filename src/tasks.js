@@ -88,6 +88,7 @@ function onProviderChange(persist = true) {
   $("model").value = settings.agent.models[id] ?? p.default_model ?? "";
   $("model").placeholder = p.default_model || "model id";
   const hasKey = p.has_key || !p.needs_key;
+  $("providerHint").classList.toggle("warn", !hasKey);
   $("providerHint").textContent = !hasKey
     ? `No API key saved for ${LABEL[id]}. Add one under Providers & keys.`
     : id === "claude"
@@ -340,6 +341,11 @@ $("schedAdd").addEventListener("click", () => {
 
 // --- running a task ------------------------------------------------------------------
 
+const mmss = (ms) => {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
+
 function logLine(kind, text) {
   const log = $("log");
   log.querySelector(".empty")?.remove();
@@ -350,9 +356,24 @@ function logLine(kind, text) {
   i.textContent = icon;
   const t = document.createElement("span");
   t.textContent = text;
-  li.append(i, t);
+  const at = document.createElement("time");
+  at.textContent = current ? mmss(Date.now() - current.startedAt) : "";
+  li.append(i, t, at);
+  // Only follow the tail when the user hasn't scrolled up to read.
+  const pinned = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
   log.append(li);
-  log.scrollTop = log.scrollHeight;
+  if (pinned) log.scrollTop = log.scrollHeight;
+}
+
+/** Status chip on the progress card: idle | running | waiting | paused | done | error. */
+function setState(state, text) {
+  $("stateChip").dataset.state = state;
+  $("stateText").textContent = text;
+}
+
+let elapsedTimer = 0;
+function paintElapsed() {
+  $("elapsed").textContent = current ? mmss(Date.now() - current.startedAt) : "";
 }
 
 function setRunning(on) {
@@ -361,11 +382,24 @@ function setRunning(on) {
   $("cancel").disabled = !on;
   $("pause").disabled = !on;
   $("provider").disabled = on;
-  if (!on) {
+  clearInterval(elapsedTimer);
+  if (on) {
+    elapsedTimer = setInterval(paintElapsed, 1000);
+    $("examplesCard").open = false;
+  } else {
     $("pause").textContent = "Pause";
     hideAsk();
   }
+  paintElapsed();
 }
+
+// Grow the task box with its text so long errands stay readable.
+function autosize() {
+  const box = $("task");
+  box.style.height = "auto";
+  box.style.height = `${box.scrollHeight + 2}px`;
+}
+$("task").addEventListener("input", autosize);
 
 $("run").addEventListener("click", () => submitTask($("task").value.trim(), $("followUp").checked));
 $("task").addEventListener("keydown", (e) => {
@@ -426,10 +460,12 @@ async function startTask(task, followUp = false) {
   $("answerCard").hidden = true;
   $("answer").textContent = "";
   $("answer").classList.remove("live");
-  $("planCard").hidden = true;
+  $("plan").hidden = true;
   $("plan").innerHTML = "";
   $("shotWrap").hidden = true;
+  $("shotWrap").open = false;
   $("status").textContent = "Working…";
+  setState("running", "Working");
   setRunning(true);
   const petName = settings.petNames[settings.pet] || "";
   try {
@@ -463,6 +499,7 @@ $("pause").addEventListener("click", () => {
   invoke("agent_pause", { id: current.id, paused: current.paused }).catch(() => {});
   $("pause").textContent = current.paused ? "Resume" : "Pause";
   $("status").textContent = current.paused ? "Paused — take over in the browser, then Resume." : "Working…";
+  setState(current.paused ? "paused" : "running", current.paused ? "Paused" : "Working");
 });
 $("kill").addEventListener("click", () => {
   queue.length = 0;
@@ -484,6 +521,9 @@ function showAsk(kind, text, host) {
     $("replyText").focus();
   }
   $("status").textContent = kind === "confirm" ? "Waiting for your approval…" : "Waiting for your answer…";
+  setState("waiting", kind === "confirm" ? "Needs approval" : "Needs an answer");
+  $("askCard").scrollIntoView({ block: "nearest", behavior: "smooth" });
+  if (kind === "confirm") $("approve").focus();
 }
 function hideAsk() {
   $("askCard").hidden = true;
@@ -493,6 +533,7 @@ function reply(text) {
   invoke("agent_reply", { id: current.id, text }).catch(() => {});
   hideAsk();
   $("status").textContent = "Working…";
+  setState("running", "Working");
 }
 $("approve").addEventListener("click", () => reply("yes"));
 $("deny").addEventListener("click", () => reply("no"));
@@ -512,18 +553,24 @@ $("replyText").addEventListener("keydown", (e) => {
 function finish(status, text) {
   if (!current) return;
   const done = { ...current };
+  const took = mmss(Date.now() - done.startedAt);
+  // Log while `current` is still set so the line gets a timestamp.
+  logLine(status === "done" ? "answer" : status, status === "done" ? "Answer ready" : text);
   current = null;
   setRunning(false);
+  $("elapsed").textContent = took;
   $("answer").classList.remove("live");
-  $("status").textContent = status === "done" ? `Done in ${Math.round((Date.now() - done.startedAt) / 1000)} s` : status === "cancelled" ? "Cancelled." : "Failed.";
+  $("status").textContent = status === "done" ? `Done in ${took}` : status === "cancelled" ? "Cancelled." : "Failed.";
+  setState(status === "done" ? "done" : status === "cancelled" ? "idle" : "error", status === "done" ? "Done" : status === "cancelled" ? "Cancelled" : "Failed");
   if (status === "done") {
+    for (const li of $("plan").querySelectorAll('[data-status="doing"]')) li.dataset.status = "done";
     $("answerCard").hidden = false;
     renderAnswer(text);
     answeredOnce = true;
     $("followRow").hidden = false; // opt-in: ticking it continues with this task's context
+    $("answerCard").scrollIntoView({ block: "nearest", behavior: "smooth" });
     if (settings.agent.speak) speak(text);
   }
-  logLine(status === "done" ? "answer" : status, status === "done" ? "Answer ready" : text);
   if (queue.length) {
     const next = queue.shift();
     renderQueue();
@@ -576,6 +623,14 @@ function speak(text) {
   }
 }
 $("speak").addEventListener("click", () => speak($("answer").textContent));
+$("followBtn").addEventListener("click", () => {
+  $("followUp").checked = true;
+  $("task").value = "";
+  $("task").placeholder = "Ask a follow-up about that answer…";
+  autosize();
+  $("task").focus();
+  $("task").scrollIntoView({ block: "nearest", behavior: "smooth" });
+});
 
 listen("pet://task", ({ payload }) => {
   const { kind, text, detail } = payload;
@@ -608,7 +663,7 @@ listen("pet://task", ({ payload }) => {
       logLine(kind, text);
       return showAsk(kind, text, detail?.host);
     case "plan": {
-      $("planCard").hidden = false;
+      $("plan").hidden = false;
       $("plan").innerHTML = "";
       for (const s of detail?.steps ?? []) {
         const li = document.createElement("li");
@@ -625,7 +680,7 @@ listen("pet://task", ({ payload }) => {
     case "shot":
       $("shotWrap").hidden = false;
       $("shot").src = `data:image/jpeg;base64,${detail?.jpeg ?? ""}`;
-      return logLine("tool", text);
+      return logLine("browser", text);
     case "usage":
       $("spend").textContent = `· $${(spentToday() + (detail?.usd ?? 0)).toFixed(3)} today`;
       return;
@@ -722,6 +777,7 @@ listen("pet://clip", ({ payload }) => {
   showTab("run");
   const text = (payload?.text ?? "").trim();
   $("task").value = text ? `Do this with the text below:\n\n${text.slice(0, 2000)}` : "";
+  autosize();
   $("task").focus();
   $("task").setSelectionRange(0, 0);
 });
@@ -754,6 +810,7 @@ function renderHistory() {
     li.append(title, meta);
     li.addEventListener("click", () => {
       $("task").value = t.task;
+      autosize();
       if (t.status === "done" && t.answer) {
         $("answerCard").hidden = false;
         renderAnswer(t.answer);
@@ -778,11 +835,12 @@ for (const e of EXAMPLES) {
   b.title = e;
   b.addEventListener("click", () => {
     $("task").value = e;
+    autosize();
     $("task").focus();
   });
   $("examples").append(b);
 }
-$("log").innerHTML = '<li class="empty">Nothing running.</li>';
+$("log").innerHTML = '<li class="empty">Nothing running yet — type an errand above and press Go.</li>';
 $("mic").hidden = !settings.agent.voice;
 window.addEventListener("storage", () => {
   settings = readSettings();
