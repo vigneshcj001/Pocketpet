@@ -21,6 +21,7 @@ const VIEWPORT: (u32, u32) = (1180, 860);
 
 // --- launching -------------------------------------------------------------------
 
+#[cfg(windows)]
 fn browser_exe() -> Option<std::path::PathBuf> {
     let pf86 = std::env::var("ProgramFiles(x86)").unwrap_or_default();
     let pf = std::env::var("ProgramFiles").unwrap_or_default();
@@ -36,9 +37,42 @@ fn browser_exe() -> Option<std::path::PathBuf> {
     candidates.into_iter().map(std::path::PathBuf::from).find(|p| p.exists())
 }
 
+#[cfg(target_os = "macos")]
+fn browser_exe() -> Option<std::path::PathBuf> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let apps = ["/Applications", &format!("{home}/Applications")];
+    let bundles = [
+        "Google Chrome.app/Contents/MacOS/Google Chrome",
+        "Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        "Brave Browser.app/Contents/MacOS/Brave Browser",
+        "Chromium.app/Contents/MacOS/Chromium",
+    ];
+    apps.iter()
+        .flat_map(|dir| bundles.iter().map(move |b| std::path::PathBuf::from(dir).join(b)))
+        .find(|p| p.exists())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn browser_exe() -> Option<std::path::PathBuf> {
+    let names = ["google-chrome", "google-chrome-stable", "microsoft-edge", "microsoft-edge-stable", "brave-browser", "chromium", "chromium-browser"];
+    let path = std::env::var("PATH").unwrap_or_default();
+    for dir in path.split(':').filter(|d| !d.is_empty()) {
+        for name in names {
+            let p = std::path::PathBuf::from(dir).join(name);
+            if p.exists() {
+                return Some(p);
+            }
+        }
+    }
+    // Flatpak / snap installs that are not on PATH.
+    ["/var/lib/flatpak/exports/bin/com.google.Chrome", "/snap/bin/chromium"]
+        .into_iter()
+        .map(std::path::PathBuf::from)
+        .find(|p| p.exists())
+}
+
 fn profile_dir() -> std::path::PathBuf {
-    let local = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".into());
-    std::path::PathBuf::from(local).join("PocketPet").join("browser")
+    crate::paths::data_dir().join("browser")
 }
 
 fn free_port() -> u16 {

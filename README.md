@@ -1,6 +1,7 @@
 # PocketPet
 
-A desktop pet for Windows. One animal — cat, duck, panda or penguin — lives in a
+A desktop pet for Windows (full), macOS and Linux (cursor-following, tasks,
+games; no window tricks). One animal — cat, duck, panda or penguin — lives in a
 transparent overlay that spans every monitor. It chases your cursor, perches on
 the titlebars of your real windows, talks to you, and can walk over to a
 window's caption buttons and press them with its paw.
@@ -208,6 +209,38 @@ install PocketPet like any other app.
 
 To start it with Windows, use **Run at startup** in the pet menu or tray menu.
 
+### macOS and Linux
+
+The same code builds on macOS and Linux with a smaller feature set (see
+*Known limits*). Tauri does not cross-compile, so each platform builds on its
+own machine — GitHub Actions does this for every push and attaches the
+packages to tagged releases:
+
+| Platform | Package | Notes |
+|---|---|---|
+| Windows | `PocketPet_x.y.z_x64-setup.exe` | NSIS installer |
+| macOS (Apple Silicon) | `PocketPet_x.y.z_aarch64.dmg` | unsigned: right-click → Open the first time, or `xattr -d com.apple.quarantine PocketPet.app` |
+| macOS (Intel) | `PocketPet_x.y.z_x64.dmg` | same |
+| Linux | `PocketPet_x.y.z_amd64.AppImage`, `.deb` | needs WebKitGTK 4.1; X11 for click-through and the cursor poller |
+
+Building locally instead:
+
+```bash
+# macOS: Xcode command-line tools + Rust
+cargo install tauri-cli --version "^2" --locked
+cd src-tauri && cargo tauri build --bundles dmg
+
+# Debian/Ubuntu
+sudo apt install libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev \
+  libayatana-appindicator3-dev librsvg2-dev patchelf libx11-dev libxtst-dev libdbus-1-dev
+cd src-tauri && cargo tauri build --bundles appimage,deb
+```
+
+On macOS the pet needs **Accessibility** permission for the global hotkeys
+(System Settings → Privacy & Security → Accessibility). API keys go to the
+Keychain (macOS) or the Secret Service keyring (Linux), with a `0600` file
+under the data folder as the fallback when no keyring is running.
+
 ## Adding an animal
 
 Drop a file in `src/pets/` exporting the same shape as `cat.js` — an SVG using
@@ -225,14 +258,28 @@ src/                     frontend (plain ES modules, no build step)
   styles.css             every animation, shared across all four animals
   pets/*.js              SVG + dialogue per animal
 src-tauri/
-  src/win.rs             cursor, virtual screen, window enumeration, clicking
-  src/titlebar.rs        caption button detection (3 strategies)
+  src/win.rs             cursor, virtual screen, window enumeration, clicking (Windows)
+  src/titlebar.rs        caption button detection (3 strategies) (Windows)
+  src/startup.rs         Run key + RegisterHotKey thread (Windows)
+  src/extras.rs          monitors, file dialogs, clipboard, updates (Windows)
+  src/unix.rs            macOS/Linux versions of the four modules above + keychain
+  src/geom.rs, paths.rs  shared Rect/WindowInfo and the per-OS data folder
   src/lib.rs             commands, overlay setup, cursor thread, tray
 ```
 
 ## Known limits
 
-- Windows only. The Win32/UIA layer has no macOS or Linux equivalent here.
+- **Windows is the full experience.** Everything that looks at *other* apps'
+  windows is Win32/UIA: walking on titlebars, pressing caption buttons,
+  mischief mode, "sit on the active window", fullscreen detection, and the
+  offline Windows speech recogniser. On macOS and Linux the pet still follows
+  the cursor, talks, eats, plays, runs tasks and drives its browser, but the
+  window list is empty, so those tricks are greyed out. Keychain, autostart
+  (LaunchAgent / XDG autostart), file dialogs and global hotkeys come from
+  crates instead of Win32.
+- macOS clips a window to one display, so the overlay covers the main screen
+  only. Linux click-through needs X11 (or XWayland); pure Wayland cannot make
+  a window click-through, so the pet blocks clicks there.
 - Elevated (admin) windows can't be driven by a non-elevated process; the pet
   will walk over and the press will silently do nothing.
 - Pets walk on window *top edges* only — no wall-climbing or ceiling-hanging

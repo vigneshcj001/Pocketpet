@@ -26,7 +26,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::oneshot;
+#[cfg(windows)]
 use windows::core::{HSTRING, PWSTR};
+#[cfg(windows)]
 use windows::Win32::Security::Credentials::{
     CredDeleteW, CredFree, CredReadW, CredWriteW, CREDENTIALW, CRED_PERSIST_LOCAL_MACHINE,
     CRED_TYPE_GENERIC,
@@ -92,11 +94,17 @@ fn price(model: &str) -> (f64, f64) {
 }
 
 // --- credential manager --------------------------------------------------------
+// Windows: Credential Manager. Elsewhere: the OS keychain via `unix::secrets`.
 
+#[cfg(not(windows))]
+pub use crate::unix::secrets::{delete_key, read_key, store_key};
+
+#[cfg(windows)]
 fn target_name(provider_id: &str) -> HSTRING {
     HSTRING::from(format!("PocketPet/{provider_id}"))
 }
 
+#[cfg(windows)]
 pub fn store_key(provider_id: &str, key: &str) -> Result<(), String> {
     let target = target_name(provider_id);
     let user = HSTRING::from("api-key");
@@ -113,6 +121,7 @@ pub fn store_key(provider_id: &str, key: &str) -> Result<(), String> {
     unsafe { CredWriteW(&cred, 0) }.map_err(|e| e.to_string())
 }
 
+#[cfg(windows)]
 pub fn read_key(provider_id: &str) -> Option<String> {
     let target = target_name(provider_id);
     let mut out: *mut CREDENTIALW = std::ptr::null_mut();
@@ -128,6 +137,7 @@ pub fn read_key(provider_id: &str) -> Option<String> {
     }
 }
 
+#[cfg(windows)]
 pub fn delete_key(provider_id: &str) -> bool {
     let target = target_name(provider_id);
     unsafe { CredDeleteW(&target, CRED_TYPE_GENERIC, 0) }.is_ok()
@@ -138,8 +148,7 @@ pub fn delete_key(provider_id: &str) -> bool {
 const MEMORY_LIMIT: usize = 6_000;
 
 pub fn data_dir() -> std::path::PathBuf {
-    let local = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".into());
-    std::path::PathBuf::from(local).join("PocketPet")
+    crate::paths::data_dir()
 }
 
 fn memory_path() -> std::path::PathBuf {
@@ -1601,6 +1610,12 @@ pub async fn transcribe(audio_b64: &str, mime: &str) -> Result<String, String> {
 
 /// Offline dictation with Windows' own recogniser (no key, no upload). Listens
 /// from the default microphone until a pause.
+#[cfg(not(windows))]
+pub fn windows_listen() -> Result<String, String> {
+    Err("Offline dictation is Windows-only here. Pick the Whisper engine under Providers › Voice.".into())
+}
+
+#[cfg(windows)]
 pub fn windows_listen() -> Result<String, String> {
     use windows::Media::SpeechRecognition::SpeechRecognizer;
     let r = SpeechRecognizer::new().map_err(|e| format!("Speech recogniser unavailable: {e}"))?;

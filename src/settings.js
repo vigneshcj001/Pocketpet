@@ -702,3 +702,15 @@ window.addEventListener("storage", () => {
 });
 fill();
 fillMonitors();
+// Window-aware tricks need Win32 (window list, caption buttons); grey them out elsewhere.
+if (!/Windows/i.test(navigator.userAgent)) {
+  for (const id of ["mischief", "realClick"]) {
+    const box = $(id);
+    box.disabled = true;
+    box.checked = false;
+    box.closest("label")?.classList.add("dim");
+    box.closest("label")?.append(" (Windows only)");
+  }
+  const keys = $("resetShortcuts").closest(".card")?.querySelector("p.hint");
+  if (keys) keys.textContent += " On macOS, Win means ⌘.";
+}

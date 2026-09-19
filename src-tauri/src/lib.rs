@@ -2,13 +2,30 @@
 //! monitor, walks to your cursor, perches on your windows, and can reach out
 //! and press their caption buttons.
 
+mod actions;
 mod agent;
 mod browser;
-mod extras;
-mod startup;
-mod titlebar;
-mod win;
+mod geom;
+mod paths;
 
+// Platform modules share one API: Win32 implementations on Windows, the
+// keychain / plugin / "no window access" versions in `unix.rs` elsewhere.
+#[cfg(windows)]
+mod extras;
+#[cfg(windows)]
+mod startup;
+#[cfg(windows)]
+mod titlebar;
+#[cfg(windows)]
+mod win;
+#[cfg(not(windows))]
+mod unix;
+#[cfg(not(windows))]
+use unix::{extras, startup, titlebar, win};
+
+pub use paths::data_dir;
+
+#[cfg(windows)]
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -22,8 +39,7 @@ use tauri::{
 };
 use tauri_plugin_notification::NotificationExt;
 
-use titlebar::CaptionButtons;
-use win::{Rect, WindowInfo};
+use geom::{CaptionButtons, Rect, WindowInfo};
 
 /// Areas of the overlay that should swallow clicks instead of passing them
 /// through: the pet's body and any open speech bubble. Physical pixels.
@@ -117,10 +133,38 @@ struct WindowTarget {
 
 // --- commands ----------------------------------------------------------------
 
+/// Every monitor as (bounds, work area) plus their bounding box, physical pixels.
+#[cfg(windows)]
+fn screen_layout(_window: &WebviewWindow) -> (Rect, Vec<(Rect, Rect)>) {
+    (win::virtual_screen(), extras::monitor_layout())
+}
+
+#[cfg(not(windows))]
+fn screen_layout(window: &WebviewWindow) -> (Rect, Vec<(Rect, Rect)>) {
+    let monitors = window.available_monitors().unwrap_or_default();
+    let layout: Vec<(Rect, Rect)> = monitors
+        .iter()
+        .map(|m| {
+            let (p, s, wa) = (m.position(), m.size(), m.work_area());
+            (
+                Rect { x: p.x, y: p.y, w: s.width as i32, h: s.height as i32 },
+                Rect { x: wa.position.x, y: wa.position.y, w: wa.size.width as i32, h: wa.size.height as i32 },
+            )
+        })
+        .collect();
+    if layout.is_empty() {
+        return (win::virtual_screen(), Vec::new());
+    }
+    let x = layout.iter().map(|(m, _)| m.x).min().unwrap_or(0);
+    let y = layout.iter().map(|(m, _)| m.y).min().unwrap_or(0);
+    let right = layout.iter().map(|(m, _)| m.x + m.w).max().unwrap_or(0);
+    let bottom = layout.iter().map(|(m, _)| m.y + m.h).max().unwrap_or(0);
+    (Rect { x, y, w: right - x, h: bottom - y }, layout)
+}
+
 #[tauri::command]
 fn get_screen(window: WebviewWindow) -> ScreenInfo {
-    let layout = extras::monitor_layout();
-    let virtual_screen = win::virtual_screen();
+    let (virtual_screen, layout) = screen_layout(&window);
     let overlay = window.app_handle().get_webview_window("overlay");
     if let Some(overlay) = overlay.as_ref() {
         let wanted_position = PhysicalPosition::new(virtual_screen.x, virtual_screen.y);
@@ -182,12 +226,8 @@ fn get_foreground_window(last: State<'_, LastForeground>) -> Option<WindowTarget
 
 #[tauri::command]
 fn get_caption_buttons(hwnd: isize) -> Option<CaptionButtons> {
-    let rect = win::frame_bounds(win_handle(hwnd))?;
+    let rect = win::frame_bounds_raw(hwnd)?;
     Some(titlebar::caption_buttons(hwnd, rect))
-}
-
-fn win_handle(raw: isize) -> windows::Win32::Foundation::HWND {
-    windows::Win32::Foundation::HWND(raw as *mut c_void)
 }
 
 /// Press a caption button on someone else's window.
@@ -198,7 +238,7 @@ fn win_handle(raw: isize) -> windows::Win32::Foundation::HWND {
 /// briefly takes over the pointer.
 #[tauri::command]
 fn press_caption_button(hwnd: isize, which: String, real_click: bool) -> bool {
-    let Some(rect) = win::frame_bounds(win_handle(hwnd)) else {
+    let Some(rect) = win::frame_bounds_raw(hwnd) else {
         return false;
     };
     let buttons = titlebar::caption_buttons(hwnd, rect);
@@ -270,6 +310,7 @@ fn sync_tray(size: String, speed: String, break_mins: u32, app: AppHandle) {
 
 /// Native file picker; resolves to a data: URL, null on cancel, Err with a
 /// user-facing message otherwise.
+#[cfg(windows)]
 #[tauri::command]
 async fn pick_image() -> Result<Option<String>, String> {
     // Modal dialogs block; keep them off the main thread.
@@ -278,9 +319,28 @@ async fn pick_image() -> Result<Option<String>, String> {
         .map_err(|e| e.to_string())?
 }
 
+#[cfg(not(windows))]
+#[tauri::command]
+async fn pick_image() -> Result<Option<String>, String> {
+    extras::pick_image().await
+}
+
+/// Our overlay's native handle as an integer; 0 where there is no HWND.
+fn own_handle(window: &WebviewWindow) -> isize {
+    #[cfg(windows)]
+    {
+        window.hwnd().map(|h| h.0 as isize).unwrap_or(0)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = window;
+        0
+    }
+}
+
 #[tauri::command]
 fn get_environment(window: WebviewWindow) -> Environment {
-    let ours = window.hwnd().map(|h| h.0 as isize).unwrap_or(0);
+    let ours = own_handle(&window);
     let fg = win::raw_foreground();
     let fullscreen = fg != 0 && win::root_window(fg) != win::root_window(ours) && win::is_fullscreen(fg);
     Environment { fullscreen, on_battery: win::on_battery() }
@@ -315,6 +375,7 @@ fn set_hotkeys(shortcuts: Shortcuts) -> Vec<String> {
     bad
 }
 
+#[cfg(windows)]
 #[tauri::command]
 async fn save_backup(json: String) -> Result<Option<String>, String> {
     tauri::async_runtime::spawn_blocking(move || extras::save_backup(&json))
@@ -322,11 +383,24 @@ async fn save_backup(json: String) -> Result<Option<String>, String> {
         .map_err(|e| e.to_string())?
 }
 
+#[cfg(not(windows))]
+#[tauri::command]
+async fn save_backup(json: String) -> Result<Option<String>, String> {
+    extras::save_backup(json).await
+}
+
+#[cfg(windows)]
 #[tauri::command]
 async fn load_backup() -> Result<Option<String>, String> {
     tauri::async_runtime::spawn_blocking(extras::load_backup)
         .await
         .map_err(|e| e.to_string())?
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+async fn load_backup() -> Result<Option<String>, String> {
+    extras::load_backup().await
 }
 
 #[tauri::command]
@@ -485,7 +559,7 @@ fn open_logs_folder() -> bool {
 /// Version, OS, providers with keys (never the keys), recent panics — for a bug report.
 #[tauri::command]
 fn diagnostics() -> String {
-    let mut out = format!("PocketPet {}\nWindows {:?}\n", env!("CARGO_PKG_VERSION"), std::env::var("OS").unwrap_or_default());
+    let mut out = format!("PocketPet {}\n{} {}\n", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH);
     let keyed: Vec<&str> = agent::PROVIDERS.iter().filter(|p| agent::read_key(p.id).is_some()).map(|p| p.id).collect();
     out.push_str(&format!("Providers with keys: {}\n", if keyed.is_empty() { "none".to_string() } else { keyed.join(", ") }));
     let logs = agent::data_dir().join("logs");
@@ -518,6 +592,7 @@ async fn install_update(url: String, app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(windows)]
 fn open_path(target: &str) -> bool {
     use windows::core::HSTRING;
     use windows::Win32::UI::Shell::ShellExecuteW;
@@ -526,6 +601,13 @@ fn open_path(target: &str) -> bool {
     let target = HSTRING::from(target);
     let h = unsafe { ShellExecuteW(None, &verb, &target, None, None, SW_SHOWNORMAL) };
     (h.0 as isize) > 32
+}
+
+/// `open` on macOS, `xdg-open` elsewhere: files, folders and URLs alike.
+#[cfg(not(windows))]
+fn open_path(target: &str) -> bool {
+    let program = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    std::process::Command::new(program).arg(target).spawn().is_ok()
 }
 
 /// HWND + rect of the top-level window belonging to a process, for the pet to
@@ -684,11 +766,15 @@ async fn kill_everything(app: &AppHandle) {
 /// tool window, so it never steals focus, never appears in Alt-Tab, and never
 /// shows up in the taskbar.
 fn configure_overlay(window: &WebviewWindow) -> tauri::Result<()> {
-    let vs = win::virtual_screen();
+    let (vs, _) = screen_layout(window);
     window.set_position(PhysicalPosition::new(vs.x, vs.y))?;
     window.set_size(PhysicalSize::new(vs.w.max(1) as u32, vs.h.max(1) as u32))?;
     window.set_ignore_cursor_events(true)?;
+    // Follow the user across Spaces / virtual desktops (no-op on Windows).
+    #[cfg(not(windows))]
+    let _ = window.set_visible_on_all_workspaces(true);
 
+    #[cfg(windows)]
     if let Ok(hwnd) = window.hwnd() {
         use windows::Win32::UI::WindowsAndMessaging::{
             GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE,
@@ -715,6 +801,8 @@ fn spawn_cursor_thread(app: AppHandle) {
     std::thread::spawn(move || {
         let mut last_pos = (i32::MIN, i32::MIN);
         let mut click_through = true;
+        #[cfg(not(windows))]
+        let device = device_query::DeviceState::new();
 
         loop {
             let delay = app.try_state::<Flags>().map(|flags| {
@@ -727,9 +815,19 @@ fn spawn_cursor_thread(app: AppHandle) {
             let Some(window) = app.get_webview_window("overlay") else {
                 continue;
             };
+            #[cfg(windows)]
             let (x, y) = win::cursor_pos();
+            #[cfg(not(windows))]
+            let (x, y) = {
+                // macOS reports points; the overlay works in physical pixels.
+                let (cx, cy) = win::read_cursor(&device);
+                let scale = if cfg!(target_os = "macos") { window.scale_factor().unwrap_or(1.0) } else { 1.0 };
+                let p = ((cx as f64 * scale).round() as i32, (cy as f64 * scale).round() as i32);
+                win::publish_cursor(p.0, p.1);
+                p
+            };
 
-            let ours = window.hwnd().map(|h| h.0 as isize).unwrap_or(0);
+            let ours = own_handle(&window);
             let fg = win::raw_foreground();
             if fg != 0 && fg != ours {
                 if let Some(state) = app.try_state::<LastForeground>() {
@@ -866,7 +964,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayToggles> {
     let hide = CheckMenuItem::with_id(
         app,
         "toggle:hide",
-        format!("Hide pet  ({})", startup::HOTKEY_LABEL),
+        format!("Hide pet  ({})", actions::HOTKEY_LABEL),
         true,
         false,
         None::<&str>,
@@ -913,9 +1011,18 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayToggles> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_window_state::Builder::default().build());
+    // Windows registers hotkeys itself (RegisterHotKey thread); the others go
+    // through the global-shortcut plugin.
+    #[cfg(not(windows))]
+    let builder = builder.plugin(
+        tauri_plugin_global_shortcut::Builder::new()
+            .with_handler(|app, shortcut, event| startup::handle(app, shortcut, event.state()))
+            .build(),
+    );
+    builder
         .manage(HitRegions::default())
         .manage(Arc::new(agent::Tasks::default()))
         .manage(LastForeground::default())
@@ -976,6 +1083,9 @@ pub fn run() {
         ])
         .setup(|app| {
             let handle = app.handle().clone();
+            // Tray-only app: no Dock icon, no app menu.
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             if let Some(window) = app.get_webview_window("overlay") {
                 configure_overlay(&window)?;
             }
@@ -983,7 +1093,7 @@ pub fn run() {
             app.manage(toggles);
             spawn_cursor_thread(handle.clone());
             // Default binding until the frontend loads the user's own set.
-            let default = startup::parse_combo(startup::HOTKEY_LABEL)
+            let default = startup::parse_combo(actions::HOTKEY_LABEL)
                 .map(|c| vec![(startup::HotkeyAction::Toggle, c)])
                 .unwrap_or_default();
             startup::spawn_hotkey_thread(handle, default, on_hotkey);

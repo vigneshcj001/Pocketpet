@@ -213,6 +213,9 @@ label.row {
   gap: 8px;
   min-height: 0;
 }
+label.dim {
+  opacity: 0.45;
+}
 /* Fields that only matter when a switch above them is on. */
 [data-needs].off {
   opacity: 0.45;

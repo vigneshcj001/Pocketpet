@@ -2,7 +2,6 @@
 //! virtual screen rect, top-level window geometry, and driving a window's
 //! system commands.
 
-use serde::Serialize;
 use std::ffi::c_void;
 
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, POINT, RECT, WPARAM};
@@ -23,40 +22,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, WM_SYSCOMMAND, WS_CAPTION, WS_CHILD, WS_EX_TOOLWINDOW, GA_ROOT,
 };
 
-/// Rectangle in physical (device) pixels: left/top/width/height.
-#[derive(Debug, Clone, Copy, Serialize, Default, PartialEq)]
-pub struct Rect {
-    pub x: i32,
-    pub y: i32,
-    pub w: i32,
-    pub h: i32,
-}
+pub use crate::geom::{Rect, WindowInfo};
 
-impl Rect {
-    pub fn from_win(r: RECT) -> Self {
-        Rect { x: r.left, y: r.top, w: r.right - r.left, h: r.bottom - r.top }
-    }
-    pub fn is_empty(&self) -> bool {
-        self.w <= 0 || self.h <= 0
-    }
-    pub fn center(&self) -> (i32, i32) {
-        (self.x + self.w / 2, self.y + self.h / 2)
-    }
-    pub fn contains(&self, x: i32, y: i32) -> bool {
-        x >= self.x && x < self.x + self.w && y >= self.y && y < self.y + self.h
-    }
-}
-
-/// A top-level window the pet can perch on or interact with.
-#[derive(Debug, Clone, Serialize)]
-pub struct WindowInfo {
-    /// HWND as an integer so it survives a round trip through JSON.
-    pub hwnd: isize,
-    pub title: String,
-    pub rect: Rect,
-    pub maximized: bool,
-    pub minimized: bool,
-    pub foreground: bool,
+/// `frame_bounds` for an HWND that came back from the frontend as an integer.
+pub fn frame_bounds_raw(raw: isize) -> Option<Rect> {
+    frame_bounds(HWND(raw as *mut c_void))
 }
 
 pub fn cursor_pos() -> (i32, i32) {

@@ -16,7 +16,6 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
 use windows::core::{Interface, VARIANT};
 use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::System::Com::{
@@ -62,14 +61,7 @@ impl Default for TitlebarInfoEx {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq)]
-pub struct CaptionButtons {
-    pub minimize: Option<Rect>,
-    pub maximize: Option<Rect>,
-    pub close: Option<Rect>,
-    /// Which strategy produced these rects: `titlebarinfoex`, `uia`, or `guess`.
-    pub source: &'static str,
-}
+pub use crate::geom::CaptionButtons;
 
 impl CaptionButtons {
     fn is_useful(&self) -> bool {

@@ -2,6 +2,10 @@
 
 ## 0.1.0 (unreleased tag; installer built 2026-09-19)
 
+### 2026-09-19 (macOS / Linux)
+- **Cross-platform build.** Win32 code (`win`, `titlebar`, `startup`, `extras`, Credential Manager, Windows speech) is `#[cfg(windows)]`; `unix.rs` supplies the same API for macOS/Linux: Tauri monitors for screen layout, `device_query` cursor poller (points→pixels on macOS), `rfd` dialogs, `arboard` clipboard, `auto-launch` startup, `tauri-plugin-global-shortcut` hotkeys, `keyring` (Keychain / Secret Service) with a `0600` file fallback. Window enumeration and caption buttons return empty there, and the frontend greys out mischief / real clicks. Shared `geom.rs`, `paths.rs`, `actions.rs`. Overlay: `macOSPrivateApi`, Accessory activation policy, visible on all workspaces. Update check picks the `.dmg` / `.AppImage` asset per platform.
+- **CI** builds Windows NSIS, macOS aarch64 + x64 DMG, Linux AppImage + deb; tags publish all of them.
+
 ### 2026-09-19 (later)
 - **Hide & seek**: the fullness bar is now removed (`display:none`) for the whole game and the covered pet gets an inline `visibility:hidden` on top of the CSS class, so nothing can peek out from under a closed box.
 - **Settings window**: resizable (min 380×480, default 440×680); tabs wrap instead of scrolling sideways; the title is gone and a search box filters cards across every tab (`Ctrl+F`); fields sit label-left / control-right with slider values inline; each plain-settings card has a hover "Reset"; dependent fields (quiet hours, snooze/countdown/toasts, break length, volume, keep-out box) fade while their switch is off; shortcut fields have an × unbind button and flag two actions on one combination; the Pets tab shows a live sprite preview (colour, accessories, personality). Tint helpers moved to `appearance.js`, shared with the overlay.

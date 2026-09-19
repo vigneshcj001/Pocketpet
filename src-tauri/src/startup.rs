@@ -1,4 +1,4 @@
-//! "Run at startup" and the global hotkeys.
+﻿//! "Run at startup" and the global hotkeys.
 //!
 //! Startup is the per-user `HKCU\...\Run` value: no admin rights, no task
 //! scheduler, and the uninstaller's job is just to delete one value. Hotkeys
@@ -28,8 +28,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const RUN_VALUE: &str = "PocketPet";
 
-/// Default combination for hide/show, for menus and first-run settings.
-pub const HOTKEY_LABEL: &str = "Ctrl+Alt+P";
+pub use crate::actions::HotkeyAction;
 
 pub fn autostart_enabled() -> bool {
     let key = HSTRING::from(RUN_KEY);
@@ -67,35 +66,6 @@ pub fn set_autostart(enabled: bool) -> bool {
 
 // --- hotkeys -----------------------------------------------------------------
 
-/// Actions a hotkey can trigger. The numeric value doubles as the hotkey id.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HotkeyAction {
-    Toggle = 1,
-    Feed = 2,
-    Play = 3,
-    Settings = 4,
-    Tasks = 5,
-    Kill = 6,
-    Voice = 7,
-    Clip = 8,
-}
-
-impl HotkeyAction {
-    fn from_id(id: i32) -> Option<Self> {
-        match id {
-            1 => Some(Self::Toggle),
-            2 => Some(Self::Feed),
-            3 => Some(Self::Play),
-            4 => Some(Self::Settings),
-            5 => Some(Self::Tasks),
-            6 => Some(Self::Kill),
-            7 => Some(Self::Voice),
-            8 => Some(Self::Clip),
-            _ => None,
-        }
-    }
-}
-
 /// Parsed combination: modifiers plus a virtual-key code.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Combo {
@@ -104,7 +74,7 @@ pub struct Combo {
 }
 
 /// Parse "Ctrl+Alt+P", "Ctrl+Shift+F5", "Win+Alt+1". Returns `None` when the
-/// text names no key or no modifier — a bare letter must never become a
+/// text names no key or no modifier â€” a bare letter must never become a
 /// global hotkey, it would eat the user's typing.
 pub fn parse_combo(text: &str) -> Option<Combo> {
     let mut mods = 0u32;

@@ -933,6 +933,15 @@ for (const e of EXAMPLES) {
   $("examples").append(b);
 }
 $("log").innerHTML = '<li class="empty">Nothing running yet — type an errand above and press Go.</li>';
+// Offline dictation is the Windows recogniser; elsewhere only Whisper works.
+if (!/Windows/i.test(navigator.userAgent)) {
+  const opt = $("voiceEngine").querySelector('option[value="windows"]');
+  if (opt) {
+    opt.disabled = true;
+    opt.textContent = "Windows (offline) — Windows only";
+  }
+  if (settings.agent.voiceEngine === "windows") save({ agent: { voiceEngine: "whisper" } });
+}
 // The sticky approval card sits just under the header, whose height changes
 // when the tabs wrap.
 new ResizeObserver(([entry]) => {

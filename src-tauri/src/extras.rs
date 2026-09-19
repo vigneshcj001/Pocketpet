@@ -11,7 +11,7 @@ use windows::Win32::UI::Controls::Dialogs::{
     OFN_PATHMUSTEXIST, OPENFILENAMEW,
 };
 
-use crate::win::Rect;
+use crate::geom::Rect;
 
 /// Every monitor's bounds in physical pixels, so the pet can stand on the
 /// bottom of *its* screen instead of the bottom of the tallest one.
