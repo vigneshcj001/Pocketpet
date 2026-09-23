@@ -40,3 +40,33 @@ body.tasks-companion { --bg: #fff; --card: #fff; --ink: #252729; --muted: #777b8
   .companion-controls button + button { border-color: #3a3b42; }
   .companion-controls button:hover { background: #3a3b42; }
 }
+
+/* Shared task feedback for every built-in animal and custom-image pet. */
+.pet[data-task-state="thinking"] .sprite:not([data-pet="droplet"]) .p-eye,
+.task-mascot[data-state="thinking"] .sprite:not([data-pet="droplet"]) .p-eye {
+  animation: none;
+  transform: scaleY(.12);
+  transform-origin: center;
+  transform-box: fill-box;
+}
+.pet[data-task-state="thinking"] .sprite:not([data-pet="droplet"]),
+.task-mascot[data-state="thinking"] .sprite:not([data-pet="droplet"]) {
+  animation: companion-breathe 2.6s ease-in-out infinite;
+}
+.pet[data-task-state="completed"] .sprite:not([data-pet="droplet"]),
+.task-mascot[data-state="completed"] .sprite:not([data-pet="droplet"]) {
+  animation: companion-celebrate .45s ease-in-out 3;
+}
+.task-mascot .custom-img { width: 100%; height: 100%; object-fit: contain; }
+@keyframes companion-breathe {
+  0%, 100% { transform: scaleX(var(--facing, 1)) translateY(0); }
+  50% { transform: scaleX(var(--facing, 1)) translateY(-2px); }
+}
+@keyframes companion-celebrate {
+  0%, 100% { transform: scaleX(var(--facing, 1)) rotate(0); }
+  25% { transform: scaleX(var(--facing, 1)) rotate(-7deg) translateY(-5px); }
+  75% { transform: scaleX(var(--facing, 1)) rotate(7deg) translateY(-5px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pet[data-task-state] .sprite, .task-mascot[data-state] .sprite { animation: none !important; }
+}

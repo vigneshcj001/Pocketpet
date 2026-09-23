@@ -5,7 +5,7 @@
 // the overlay (single writer), which tells us via pet://settings.
 import { readSettings, writeSettings, AGENT_PROVIDERS } from "./preferences.js";
 import { getPet } from "./pets/index.js";
-import { tintedSvg } from "./appearance.js";
+import { tintedSvg, customImageSvg } from "./appearance.js";
 import { COMPOSE_REQUEST, icon } from "./companion.js";
 
 const { invoke } = window.__TAURI__.core;
@@ -969,7 +969,8 @@ listen("pet://settings", () => {
 });
 // Keep the same chosen pet and colour across the overlay and task window.
 function paintCompanion() {
-  const pet = getPet(settings.pet);
+  const custom = settings.customPets.find((item) => item.id === settings.pet);
+  const pet = custom ? { id: custom.id, svg: customImageSvg(custom.image), tint: [] } : getPet(settings.pet);
   $("task-sprite").dataset.pet = pet.id;
   $("task-sprite").innerHTML = tintedSvg(pet, settings.colors[settings.pet]);
 }
