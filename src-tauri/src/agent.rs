@@ -233,13 +233,15 @@ fn api_error(v: &Value) -> String {
 /// Read a Server-Sent-Events body line by line, yielding the `data:` payloads.
 async fn sse_data(resp: reqwest::Response, mut on_data: impl FnMut(&str) -> bool) -> Result<(), String> {
     let mut stream = resp.bytes_stream();
-    let mut buf = String::new();
+    // Split on raw bytes: a multi-byte character (₹, emoji) can straddle two
+    // chunks, and decoding each chunk alone would turn it into U+FFFD.
+    let mut buf: Vec<u8> = Vec::new();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| format!("stream error: {e}"))?;
-        buf.push_str(&String::from_utf8_lossy(&chunk));
-        while let Some(pos) = buf.find('\n') {
-            let line = buf[..pos].trim_end_matches('\r').to_string();
-            buf.drain(..=pos);
+        buf.extend_from_slice(&chunk);
+        while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
+            let raw: Vec<u8> = buf.drain(..=pos).collect();
+            let line = String::from_utf8_lossy(&raw[..pos]).trim_end_matches('\r').to_string();
             if let Some(data) = line.strip_prefix("data:") {
                 if !on_data(data.trim()) {
                     return Ok(());
@@ -1098,16 +1100,44 @@ async fn run_inner(ctx: &mut Ctx<'_>) -> Result<String, String> {
         Wire::OpenAi => run_openai(ctx, &model, prior).await,
     };
     // Keep the transcript (bounded) for a possible follow-up, even after errors.
-    let mut kept = messages;
-    if kept.len() > 40 {
-        kept.drain(..kept.len() - 40);
-        // Never start a transcript on a tool result: drop until a plain user/assistant text turn.
-        while kept.first().map_or(false, |m| m.get("role").and_then(Value::as_str) == Some("tool") || m.get("tool_call_id").is_some()) {
-            kept.remove(0);
-        }
-    }
+    let kept = trim_transcript(messages, 40);
     *ctx.tasks.last.lock().unwrap() = Some(Conversation { wire: p.wire, messages: kept });
     answer
+}
+
+/// Make a finished transcript safe to send again as the start of a follow-up.
+///
+/// Keeps the last `max` messages, then drops leading messages until one is a
+/// plain user prompt: both APIs reject a transcript that opens on an assistant
+/// turn or on tool results whose tool call was trimmed away. A task cancelled
+/// in the middle of an OpenAI tool batch leaves calls with no `tool` reply,
+/// which the API also rejects, so those get a stub answer.
+fn trim_transcript(mut messages: Vec<Value>, max: usize) -> Vec<Value> {
+    if messages.len() > max {
+        messages.drain(..messages.len() - max);
+    }
+    let is_prompt = |m: &Value| m.get("role").and_then(Value::as_str) == Some("user") && m.get("content").map_or(false, Value::is_string);
+    let start = messages.iter().position(is_prompt).unwrap_or(messages.len());
+    messages.drain(..start);
+    if let Some(i) = messages.iter().rposition(|m| m.get("tool_calls").and_then(Value::as_array).map_or(false, |a| !a.is_empty())) {
+        let answered: Vec<String> = messages[i + 1..]
+            .iter()
+            .filter_map(|m| m.get("tool_call_id").and_then(Value::as_str).map(String::from))
+            .collect();
+        let missing: Vec<String> = messages[i]["tool_calls"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|c| c.get("id").and_then(Value::as_str))
+            .filter(|id| !answered.iter().any(|a| a == id))
+            .map(String::from)
+            .collect();
+        let at = i + 1 + messages[i + 1..].iter().take_while(|m| m.get("role").and_then(Value::as_str) == Some("tool")).count();
+        for (n, id) in missing.into_iter().enumerate() {
+            messages.insert(at + n, json!({ "role": "tool", "tool_call_id": id, "content": "ERROR: Cancelled." }));
+        }
+    }
+    messages
 }
 
 // --- Anthropic Messages loop -----------------------------------------------------
@@ -1741,6 +1771,30 @@ mod tests {
         assert_eq!(site_rule("www.amazon.in", &rules), Some("ask"));
         assert_eq!(site_rule("pay.amazon.in", &rules), Some("never"));
         assert_eq!(site_rule("flipkart.com", &rules), None);
+    }
+
+    #[test]
+    fn follow_up_transcripts_start_on_a_prompt_and_answer_every_call() {
+        let anthropic = vec![
+            json!({ "role": "user", "content": "old task" }),
+            json!({ "role": "assistant", "content": [{ "type": "tool_use", "id": "t1" }] }),
+            json!({ "role": "user", "content": [{ "type": "tool_result", "tool_use_id": "t1" }] }),
+            json!({ "role": "assistant", "content": [{ "type": "text", "text": "done" }] }),
+            json!({ "role": "user", "content": "next task" }),
+            json!({ "role": "assistant", "content": [{ "type": "text", "text": "ok" }] }),
+        ];
+        let kept = trim_transcript(anthropic, 5);
+        assert_eq!(kept.len(), 2);
+        assert_eq!(kept[0]["content"], "next task");
+
+        let cancelled = vec![
+            json!({ "role": "user", "content": "task" }),
+            json!({ "role": "assistant", "content": null, "tool_calls": [{ "id": "a" }, { "id": "b" }] }),
+            json!({ "role": "tool", "tool_call_id": "a", "content": "ok" }),
+        ];
+        let kept = trim_transcript(cancelled, 40);
+        assert_eq!(kept.len(), 4);
+        assert_eq!(kept[3]["tool_call_id"], "b");
     }
 
     #[test]

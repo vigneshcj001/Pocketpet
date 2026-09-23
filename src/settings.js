@@ -587,7 +587,9 @@ $("installUpdate").addEventListener("click", async () => {
   if (!pendingUpdate) return;
   $("updateStatus").textContent = "Downloading… PocketPet will close and the installer will open.";
   try {
-    await invoke("install_update", { url: pendingUpdate.url });
+    // Windows quits into the installer; macOS and Linux return where the download went.
+    const message = await invoke("install_update", { url: pendingUpdate.url });
+    if (message) $("updateStatus").textContent = message;
   } catch (err) {
     $("updateStatus").textContent = `Update failed: ${err}`;
   }

@@ -581,15 +581,38 @@ async fn check_update() -> Result<extras::UpdateInfo, String> {
 }
 
 /// Download the installer, launch it, and quit so it can replace the exe.
+#[cfg(windows)]
 #[tauri::command]
-async fn install_update(url: String, app: AppHandle) -> Result<(), String> {
+async fn install_update(url: String, app: AppHandle) -> Result<String, String> {
     let path = extras::download_update(&url).await?;
     if !open_path(&path.display().to_string()) {
         return Err("Could not start the installer.".into());
     }
     tokio::time::sleep(std::time::Duration::from_millis(800)).await;
     app.exit(0);
-    Ok(())
+    Ok(String::new())
+}
+
+/// macOS mounts the .dmg; Linux gets an executable AppImage in a revealed
+/// folder. Replacing the running app is the user's step here, so PocketPet
+/// stays open and says where the update went.
+#[cfg(not(windows))]
+#[tauri::command]
+async fn install_update(url: String, app: AppHandle) -> Result<String, String> {
+    let _ = app;
+    let path = extras::download_update(&url).await?;
+    #[cfg(target_os = "linux")]
+    let target = {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
+        path.parent().map(|p| p.display().to_string()).unwrap_or_default()
+    };
+    #[cfg(not(target_os = "linux"))]
+    let target = path.display().to_string();
+    if !open_path(&target) {
+        return Err(format!("Downloaded to {}, but could not open it.", path.display()));
+    }
+    Ok(format!("Downloaded to {}. Quit PocketPet and replace the old app with it.", path.display()))
 }
 
 #[cfg(windows)]

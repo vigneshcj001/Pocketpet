@@ -210,6 +210,7 @@ pub mod extras {
     // --- updates ---------------------------------------------------------------
 
     const RELEASES_API: &str = "https://api.github.com/repos/vigneshcj001/Pocketpet/releases/latest";
+    const RELEASE_DOWNLOADS: &str = "https://github.com/vigneshcj001/Pocketpet/releases/download/";
 
     #[derive(serde::Serialize)]
     pub struct UpdateInfo {
@@ -270,7 +271,8 @@ pub mod extras {
     /// mounts, the AppImage's folder is revealed; replacing the running app
     /// is left to the user on these platforms.
     pub async fn download_update(url: &str) -> Result<std::path::PathBuf, String> {
-        if !url.starts_with("https://github.com/") && !url.starts_with("https://objects.githubusercontent.com/") {
+        // Only our own release assets; GitHub redirects these to its CDN itself.
+    if !url.starts_with(RELEASE_DOWNLOADS) || url.contains("..") || url.to_ascii_lowercase().contains("%2e") {
             return Err("Refusing to download an update from outside GitHub.".into());
         }
         let client = reqwest::Client::builder().user_agent("PocketPet").build().map_err(|e| e.to_string())?;

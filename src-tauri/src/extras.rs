@@ -191,6 +191,7 @@ pub fn clipboard_text() -> Option<String> {
 // GitHub Releases is the update feed: the newest release's `*-setup.exe` asset.
 
 const RELEASES_API: &str = "https://api.github.com/repos/vigneshcj001/Pocketpet/releases/latest";
+const RELEASE_DOWNLOADS: &str = "https://github.com/vigneshcj001/Pocketpet/releases/download/";
 
 #[derive(serde::Serialize)]
 pub struct UpdateInfo {
@@ -232,7 +233,8 @@ pub async fn check_update() -> Result<UpdateInfo, String> {
 /// Download the installer to %TEMP% and start it. The caller exits the app so
 /// the installer can replace the running exe.
 pub async fn download_update(url: &str) -> Result<std::path::PathBuf, String> {
-    if !url.starts_with("https://github.com/") && !url.starts_with("https://objects.githubusercontent.com/") {
+    // Only our own release assets; GitHub redirects these to its CDN itself.
+    if !url.starts_with(RELEASE_DOWNLOADS) || url.contains("..") || url.to_ascii_lowercase().contains("%2e") {
         return Err("Refusing to download an installer from outside GitHub.".into());
     }
     let client = reqwest::Client::builder().user_agent("PocketPet").build().map_err(|e| e.to_string())?;

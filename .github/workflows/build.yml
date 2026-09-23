@@ -19,7 +19,7 @@ jobs:
         with:
           node-version: 22
       - name: JS tests
-        run: node --test tests/features.test.mjs
+        run: node --test tests/*.test.mjs
 
   build:
     needs: test
@@ -71,7 +71,11 @@ jobs:
       # the webview never starts (tauri-apps/tauri#15665).
       - name: Linux GStreamer plugins for the AppImage
         if: matrix.name == 'linux'
+        # libgstreamer1.0-dev needs libunwind-dev, which the runner image's
+        # preinstalled libunwind-14-dev blocks ("held broken packages").
+        # Installing libunwind-dev on its own first lets apt swap them.
         run: |
+          sudo apt-get install -y libunwind-dev
           sudo apt-get install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev             gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad             gstreamer1.0-pulseaudio gstreamer1.0-libav
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
@@ -121,8 +125,15 @@ jobs:
         working-directory: src-tauri
       - name: Verify the macOS signature
         if: startsWith(matrix.name, 'macos')
+        # The bundler deletes bundle/macos/PocketPet.app after building a
+        # dmg-only bundle, so check the app inside the DMG users download.
         run: |
-          APP="src-tauri/target/${{ matrix.target }}/release/bundle/macos/PocketPet.app"
+          set -euo pipefail
+          DMG=$(ls src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg)
+          MNT=$(mktemp -d)
+          hdiutil attach -nobrowse -readonly -mountpoint "$MNT" "$DMG"
+          trap 'hdiutil detach "$MNT" -force' EXIT
+          APP="$MNT/PocketPet.app"
           codesign --verify --deep --strict --verbose=2 "$APP"
           codesign -dvv "$APP" 2>&1 | sed -n '1,12p'
           # Not notarized without the secrets, so this is informational only.
