@@ -305,7 +305,7 @@ function renderPreview(id) {
   const sprite = $("previewSprite");
   const key = `${id}|${settings.colors[id] ?? ""}`;
   if (sprite.dataset.key !== key) {
-    sprite.dataset.key = key;
+    sprite.dataset.key = key; sprite.dataset.pet = p.id;
     sprite.innerHTML = tintedSvg(p, settings.colors[id]);
   }
   renderAccessoryNodes($("previewAccessories"), settings.accessories[id] ?? []);

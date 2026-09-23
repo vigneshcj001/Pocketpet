@@ -1,0 +1,216 @@
+/* Integer-grid artwork and quiet, stepped movement keep the pixel character crisp. */
+.sprite[data-pet="droplet"] svg {
+  filter: none;
+  image-rendering: pixelated;
+  overflow: visible;
+}
+
+.sprite[data-pet="droplet"] .droplet-body {
+  transform-origin: 50% 85%;
+  transform-box: fill-box;
+}
+
+.sprite[data-pet="droplet"] .droplet-eye {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: droplet-blink 5.4s steps(1, end) infinite;
+}
+
+.droplet-eyes-closed,
+.droplet-eyes-happy,
+.droplet-mouth-happy,
+.droplet-arm-wave {
+  display: none;
+}
+
+[data-state="idle"] .sprite[data-pet="droplet"] .droplet-body,
+[data-state="sit"] .sprite[data-pet="droplet"] .droplet-body {
+  animation: droplet-idle 3s steps(1, end) infinite;
+}
+
+[data-state="thinking"] .sprite[data-pet="droplet"] .droplet-eyes-open,
+[data-state="sleep"] .sprite[data-pet="droplet"] .droplet-eyes-open,
+[data-state="happy"] .sprite[data-pet="droplet"] .droplet-eyes-open,
+[data-state="completed"] .sprite[data-pet="droplet"] .droplet-eyes-open {
+  display: none;
+}
+
+[data-state="thinking"] .sprite[data-pet="droplet"] .droplet-eyes-closed,
+[data-state="sleep"] .sprite[data-pet="droplet"] .droplet-eyes-closed {
+  display: inline;
+}
+
+[data-state="thinking"] .sprite[data-pet="droplet"] .droplet-body {
+  animation: droplet-think 2s steps(1, end) infinite;
+}
+
+[data-state="sleep"] .sprite[data-pet="droplet"] .droplet-body {
+  transform: translateY(1px) rotate(-4deg);
+}
+
+[data-state="happy"] .sprite[data-pet="droplet"] .droplet-mouth-rest,
+[data-state="completed"] .sprite[data-pet="droplet"] .droplet-mouth-rest,
+[data-state="happy"] .sprite[data-pet="droplet"] .droplet-arm-rest,
+[data-state="completed"] .sprite[data-pet="droplet"] .droplet-arm-rest {
+  display: none;
+}
+
+[data-state="happy"] .sprite[data-pet="droplet"] .droplet-eyes-happy,
+[data-state="completed"] .sprite[data-pet="droplet"] .droplet-eyes-happy,
+[data-state="happy"] .sprite[data-pet="droplet"] .droplet-mouth-happy,
+[data-state="completed"] .sprite[data-pet="droplet"] .droplet-mouth-happy,
+[data-state="happy"] .sprite[data-pet="droplet"] .droplet-arm-wave,
+[data-state="completed"] .sprite[data-pet="droplet"] .droplet-arm-wave {
+  display: inline;
+}
+
+[data-state="happy"] .sprite[data-pet="droplet"] .droplet-body,
+[data-state="completed"] .sprite[data-pet="droplet"] .droplet-body {
+  animation: droplet-cheer 700ms steps(2, end) infinite;
+}
+
+[data-state="walk"] .sprite[data-pet="droplet"] .droplet-body,
+[data-state="run"] .sprite[data-pet="droplet"] .droplet-body {
+  animation: droplet-walk 360ms steps(2, end) infinite;
+}
+
+@keyframes droplet-blink {
+  0%, 43%, 47%, 100% { transform: scaleY(1); }
+  44%, 46% { transform: scaleY(.15); }
+}
+
+@keyframes droplet-idle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1px); }
+}
+
+@keyframes droplet-think {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  50% { transform: translateY(1px) rotate(-2deg); }
+}
+
+@keyframes droplet-cheer {
+  0%, 100% { transform: translateY(-2px) rotate(-9deg); }
+  50% { transform: translateY(-4px) rotate(-5deg); }
+}
+
+@keyframes droplet-walk {
+  0%, 100% { transform: rotate(-2deg); }
+  50% { transform: rotate(2deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sprite[data-pet="droplet"] .droplet-eye,
+  [data-state] .sprite[data-pet="droplet"] .droplet-body {
+    animation: none;
+  }
+}
+
+/* Real task progress takes priority over idle expressions. */
+/* Integer-grid artwork and quiet, stepped movement keep the pixel character crisp. */
+.sprite[data-pet="droplet"] svg {
+  filter: none;
+  image-rendering: pixelated;
+  overflow: visible;
+}
+
+.sprite[data-pet="droplet"] .droplet-body {
+  transform-origin: 50% 85%;
+  transform-box: fill-box;
+}
+
+.sprite[data-pet="droplet"] .droplet-eye {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: droplet-blink 5.4s steps(1, end) infinite;
+}
+
+.droplet-eyes-closed,
+.droplet-eyes-happy,
+.droplet-mouth-happy,
+.droplet-arm-wave {
+  display: none;
+}
+
+[data-task-state="idle"] .sprite[data-pet="droplet"] .droplet-body,
+[data-task-state="sit"] .sprite[data-pet="droplet"] .droplet-body {
+  animation: droplet-idle 3s steps(1, end) infinite;
+}
+
+[data-task-state="thinking"] .sprite[data-pet="droplet"] .droplet-eyes-open,
+[data-task-state="sleep"] .sprite[data-pet="droplet"] .droplet-eyes-open,
+[data-task-state="happy"] .sprite[data-pet="droplet"] .droplet-eyes-open,
+[data-task-state="completed"] .sprite[data-pet="droplet"] .droplet-eyes-open {
+  display: none;
+}
+
+[data-task-state="thinking"] .sprite[data-pet="droplet"] .droplet-eyes-closed,
+[data-task-state="sleep"] .sprite[data-pet="droplet"] .droplet-eyes-closed {
+  display: inline;
+}
+
+[data-task-state="thinking"] .sprite[data-pet="droplet"] .droplet-body {
+  animation: droplet-think 2s steps(1, end) infinite;
+}
+
+[data-task-state="sleep"] .sprite[data-pet="droplet"] .droplet-body {
+  transform: translateY(1px) rotate(-4deg);
+}
+
+[data-task-state="happy"] .sprite[data-pet="droplet"] .droplet-mouth-rest,
+[data-task-state="completed"] .sprite[data-pet="droplet"] .droplet-mouth-rest,
+[data-task-state="happy"] .sprite[data-pet="droplet"] .droplet-arm-rest,
+[data-task-state="completed"] .sprite[data-pet="droplet"] .droplet-arm-rest {
+  display: none;
+}
+
+[data-task-state="happy"] .sprite[data-pet="droplet"] .droplet-eyes-happy,
+[data-task-state="completed"] .sprite[data-pet="droplet"] .droplet-eyes-happy,
+[data-task-state="happy"] .sprite[data-pet="droplet"] .droplet-mouth-happy,
+[data-task-state="completed"] .sprite[data-pet="droplet"] .droplet-mouth-happy,
+[data-task-state="happy"] .sprite[data-pet="droplet"] .droplet-arm-wave,
+[data-task-state="completed"] .sprite[data-pet="droplet"] .droplet-arm-wave {
+  display: inline;
+}
+
+[data-task-state="happy"] .sprite[data-pet="droplet"] .droplet-body,
+[data-task-state="completed"] .sprite[data-pet="droplet"] .droplet-body {
+  animation: droplet-cheer 700ms steps(2, end) infinite;
+}
+
+[data-task-state="walk"] .sprite[data-pet="droplet"] .droplet-body,
+[data-task-state="run"] .sprite[data-pet="droplet"] .droplet-body {
+  animation: droplet-walk 360ms steps(2, end) infinite;
+}
+
+@keyframes droplet-blink {
+  0%, 43%, 47%, 100% { transform: scaleY(1); }
+  44%, 46% { transform: scaleY(.15); }
+}
+
+@keyframes droplet-idle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1px); }
+}
+
+@keyframes droplet-think {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  50% { transform: translateY(1px) rotate(-2deg); }
+}
+
+@keyframes droplet-cheer {
+  0%, 100% { transform: translateY(-2px) rotate(-9deg); }
+  50% { transform: translateY(-4px) rotate(-5deg); }
+}
+
+@keyframes droplet-walk {
+  0%, 100% { transform: rotate(-2deg); }
+  50% { transform: rotate(2deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sprite[data-pet="droplet"] .droplet-eye,
+  [data-state] .sprite[data-pet="droplet"] .droplet-body {
+    animation: none;
+  }
+}

@@ -1,12 +1,12 @@
 // Shared, validated settings for the overlay, the control room, and backups.
 // This module has no DOM dependency, so migrations and backup validation can be tested.
 export const STORAGE_KEY = "pocketpet";
-export const BUILTIN_IDS = ["cat", "duck", "panda", "penguin"];
+export const BUILTIN_IDS = ["droplet", "cat", "duck", "panda", "penguin"];
 export const ACTIVITY_KEYS = ["meals", "pats", "pets", "fetches", "games", "wins", "breaks", "tasks"];
 export const AGENT_PROVIDERS = ["claude", "openai", "groq", "gemini", "deepseek", "ollama", "custom"];
 export const MAX_TASK_HISTORY = 50;
 export const DEFAULTS = {
-  pet: "cat", companion: "", size: "medium", speed: "normal",
+  pet: "droplet", companion: "", size: "medium", speed: "normal",
   follow: true, mischief: false, realClick: false, sound: true, toasts: true,
   volume: 60, chatter: 50, hungerRate: 100, hunger: 20, buddyHunger: 20, hungerAt: Date.now(),
   customImage: null, customPets: [], petNames: {}, personalities: {}, colors: {}, accessories: {}, profiles: {},
@@ -112,7 +112,7 @@ export function normalizeSettings(input) {
   }
   next.customImage = legacy;
   const ids = [...BUILTIN_IDS, ...next.customPets.map((pet) => pet.id)];
-  next.pet = choice(raw.pet === "custom" ? "custom:legacy" : raw.pet, ids, "cat");
+  next.pet = choice(raw.pet === "custom" ? "custom:legacy" : raw.pet, ids, "droplet");
   next.companion = choice(raw.companion === "custom" ? "custom:legacy" : raw.companion, ["", ...ids], "");
   next.stats = normalizeProfile(raw.stats);
   const profiles = object(raw.profiles);

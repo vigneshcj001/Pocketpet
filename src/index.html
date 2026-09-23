@@ -6,6 +6,8 @@
     <title>PocketPet</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="games.css" />
+    <link rel="stylesheet" href="droplet.css" />
+    <link rel="stylesheet" href="companion.css" />
   </head>
   <body>
     <!-- The whole page is a transparent, click-through overlay covering every
@@ -19,6 +21,13 @@
         <div id="accessories" class="accessories"></div>
         <!-- Fullness bar; hidden unless the setting is on. -->
         <div id="hunger" class="hunger" hidden><div id="hunger-fill" class="hunger-fill"></div></div>
+      </div>
+      <div id="companion" class="companion" hidden>
+        <div id="companion-controls" class="companion-controls" role="group" aria-label="Companion controls"></div>
+        <button type="button" id="companion-task" class="companion-task" hidden title="Open task details">
+          <strong id="companion-title"></strong>
+          <span id="companion-summary" role="status" aria-live="polite"></span>
+        </button>
       </div>
       <!-- "break in 12:34" pill; positioned above the pet each frame. -->
       <div id="countdown" class="countdown" hidden></div>

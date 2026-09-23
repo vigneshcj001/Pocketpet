@@ -5,6 +5,8 @@
 // the overlay (single writer), which tells us via pet://settings.
 import { readSettings, writeSettings, AGENT_PROVIDERS } from "./preferences.js";
 import { getPet } from "./pets/index.js";
+import { tintedSvg } from "./appearance.js";
+import { COMPOSE_REQUEST, icon } from "./companion.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen, emit } = window.__TAURI__.event;
@@ -401,6 +403,10 @@ function logLine(kind, text) {
 function setState(state, text) {
   $("stateChip").dataset.state = state;
   $("stateText").textContent = text;
+  $("task-mascot").dataset.state = state === "running" ? "thinking" : state === "done" ? "completed" : "idle";
+  if (current) $("task-summary-title").textContent = current.task;
+  $("task-summary-text").textContent = state === "running" ? "Thinking" : text;
+  $("task-summary").hidden = false;
 }
 
 let elapsedTimer = 0;
@@ -505,6 +511,8 @@ async function startTask(task, followUp = false) {
   $("status").textContent = "Working…";
   setState("running", "Working");
   setRunning(true);
+  $("task-summary-text").textContent = "Starting your task";
+  await emit("pet://companion-start", { id, task }).catch(() => {});
   const petName = settings.petNames[settings.pet] || "";
   try {
     await invoke("agent_run", {
@@ -611,6 +619,7 @@ function finish(status, text) {
   $("answer").classList.remove("live");
   $("status").textContent = status === "done" ? `Done in ${took}` : status === "cancelled" ? "Cancelled." : "Failed.";
   setState(status === "done" ? "done" : status === "cancelled" ? "idle" : "error", status === "done" ? "Done" : status === "cancelled" ? "Cancelled" : "Failed");
+  $("task-summary-text").textContent = status === "done" ? `✓ ${text}` : text;
   if (status === "done") {
     for (const li of $("plan").querySelectorAll('[data-status="doing"]')) li.dataset.status = "done";
     $("answerCard").hidden = false;
@@ -689,6 +698,7 @@ listen("pet://task", ({ payload }) => {
     return;
   }
   if (!current || payload.id !== current.id) return;
+  if (["tool", "note", "plan", "delta"].includes(kind)) $("task-summary-text").textContent = "Thinking";
   switch (kind) {
     case "delta": {
       // Live answer text; the final "answer" event replaces it.
@@ -957,5 +967,60 @@ listen("pet://settings", () => {
   paintSpend();
   if (!document.querySelector('[data-panel="history"]').hidden) renderHistory();
 });
-loadProviders();
+// Keep the same chosen pet and colour across the overlay and task window.
+function paintCompanion() {
+  const pet = getPet(settings.pet);
+  $("task-sprite").dataset.pet = pet.id;
+  $("task-sprite").innerHTML = tintedSvg(pet, settings.colors[settings.pet]);
+}
+for (const [id, name] of [["companion-new", "compose"], ["companion-voice", "voice"], ["companion-collapse", "chevron"]]) $(id).innerHTML = icon(name);
+function showComposer() {
+  showTab("run");
+  $("task-composer").hidden = false;
+  $("companion-collapse").setAttribute("aria-expanded", "true");
+  $("companion-collapse").setAttribute("aria-label", "Collapse composer");
+  $("task").focus();
+}
+$("companion-new").addEventListener("click", () => {
+  showComposer();
+  $("task").value = "";
+  $("followUp").checked = false;
+  autosize();
+  if (!current) {
+    $("task-summary").hidden = true;
+    $("answerCard").hidden = true;
+    $("task-mascot").dataset.state = "idle";
+  }
+});
+function companionVoice() {
+  showComposer();
+  if (!settings.agent.voice) {
+    $("status").textContent = "Enable voice input under Providers & keys first.";
+    return;
+  }
+  if (whisperMode()) { if (recorder) stopRecording(); else startRecording(); }
+  else listenWindows();
+}
+$("companion-voice").addEventListener("click", companionVoice);
+$("companion-collapse").addEventListener("click", () => {
+  const hidden = !$("task-composer").hidden;
+  $("task-composer").hidden = hidden;
+  $("companion-collapse").setAttribute("aria-expanded", String(!hidden));
+  $("companion-collapse").setAttribute("aria-label", hidden ? "Expand composer" : "Collapse composer");
+});
+function consumeComposeRequest() {
+  let request;
+  try { request = JSON.parse(localStorage.getItem(COMPOSE_REQUEST)); } catch { return; }
+  if (!request) return;
+  localStorage.removeItem(COMPOSE_REQUEST);
+  if (Date.now() - request.at > 15000) return;
+  settings = readSettings();
+  if (request.mode === "voice") companionVoice();
+  else showComposer();
+}
+listen("pet://compose", consumeComposeRequest);
+window.addEventListener("focus", consumeComposeRequest);
+listen("pet://settings", () => { settings = readSettings(); paintCompanion(); });
+paintCompanion();
+loadProviders().then(consumeComposeRequest);
 paintSpend();

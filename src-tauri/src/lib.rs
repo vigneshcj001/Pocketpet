@@ -866,8 +866,8 @@ fn spawn_cursor_thread(app: AppHandle) {
 
 // --- tray --------------------------------------------------------------------
 
-const PETS: [(&str, &str); 4] =
-    [("cat", "Cat"), ("duck", "Duck"), ("panda", "Panda"), ("penguin", "Penguin")];
+const PETS: [(&str, &str); 5] =
+    [("droplet", "Droplet"), ("cat", "Cat"), ("duck", "Duck"), ("panda", "Panda"), ("penguin", "Penguin")];
 
 /// Radio-style groups as `(id, label)`. muda has no radio item, so one
 /// CheckMenuItem per entry is ticked by hand in `select_radio`.

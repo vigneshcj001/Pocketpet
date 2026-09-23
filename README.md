@@ -17,6 +17,12 @@ your OS. All builds are on the
 | App (this repo) | <https://github.com/vigneshcj001/Pocketpet> |
 | Website | <https://pocketpet-web.vercel.app/> · source: <https://github.com/vigneshcj001/Pocketpet-web> |
 
+## Blue droplet companion
+
+The blue pixel droplet is the default for new installations. Existing pet selections are preserved: choose **Droplet** from the tray's **Choose pet** menu or Settings. Compact chat and voice controls sit beside the pet, with a task-status pill driven by real agent events. Click the pill to open task details and approvals. Controls move above the pet when there is not enough space below it.
+
+The task window uses the same pet and colour, with starting, thinking and completed expressions. Voice uses the configured desktop voice engine; enable it under Providers & keys. Rebuild and restart the desktop app to use these changes.
+
 ## Features
 
 - **Follows the cursor.** Walks when you're near, runs when you're far, settles

@@ -6,8 +6,10 @@
     <title>PocketPet tasks</title>
     <link rel="stylesheet" href="settings.css" />
     <link rel="stylesheet" href="tasks.css" />
+    <link rel="stylesheet" href="droplet.css" />
+    <link rel="stylesheet" href="companion.css" />
   </head>
-  <body>
+  <body class="tasks-companion">
     <!-- "Ask me to do something": a task goes to the Rust agent, which runs an
          LLM with web search, page reading and a real browser, streaming
          progress back as pet://task events. Anything that spends money, logs in
@@ -31,7 +33,15 @@
     <main>
       <!-- ================= Task ================= -->
       <section data-panel="run">
-        <div class="card compose">
+        <div id="task-mascot" class="task-mascot" data-state="idle" aria-hidden="true"><div id="task-sprite" class="sprite"></div></div>
+        <div class="task-companion-controls" role="group" aria-label="Companion controls">
+          <button type="button" id="companion-new" aria-label="New chat" title="New chat"></button>
+          <button type="button" id="companion-voice" aria-label="Voice input" title="Voice input"></button>
+          <button type="button" id="companion-collapse" aria-label="Collapse composer" aria-expanded="true" aria-controls="task-composer" title="Collapse composer"></button>
+        </div>
+        <div id="task-summary" class="task-summary" role="status" aria-live="polite" hidden><strong id="task-summary-title"></strong><span id="task-summary-text"></span></div>
+        <div id="task-composer" class="card compose">
+          <details class="task-provider-options"><summary>Provider &amp; model</summary>
           <div class="pair">
             <label>Provider <select id="provider"></select></label>
             <label>Model
@@ -43,9 +53,10 @@
             </label>
           </div>
           <p class="hint" id="providerHint"></p>
+          </details>
           <label>What should I do?
             <div class="pair tight">
-              <textarea id="task" rows="3" placeholder="e.g. Order a margherita pizza from Domino's to my usual address — stop at payment."></textarea>
+              <textarea id="task" rows="1" placeholder="Start a new chat"></textarea>
               <button type="button" id="mic" title="Talk (Ctrl+Alt+V)">🎤</button>
             </div>
           </label>

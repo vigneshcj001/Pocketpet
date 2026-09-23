@@ -17,6 +17,7 @@ import {
   formatCountdown,
 } from "./behavior.js";
 import { createGames, TOYS } from "./games.js";
+import { createCompanion } from "./companion.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -460,6 +461,7 @@ function paintSprite(root, p, id) {
   const key = `${p.id}|${settings.colors[id] ?? ""}`;
   if (root.dataset.key === key) return;
   root.dataset.key = key;
+  root.dataset.pet = p.id;
   root.innerHTML = tintedSvg(p, settings.colors[id]);
 }
 
@@ -630,6 +632,7 @@ function frame() {
   }
 
   applyTransform();
+  companion.position();
   if (state.placing === "food" || state.placing === "buddyFood") {
     el.food.style.transform = `translate3d(${state.cursor.x - foodSize() / 2}px, ${state.cursor.y - foodSize() / 2}px, 0)`;
   }
@@ -747,7 +750,7 @@ function applyTransform() {
 let lastRegionKey = "";
 
 function reportHitRegions() {
-  const regions = [rectOf(el.pet)];
+  const regions = [rectOf(el.pet), ...companion.regions().map(rectOf)];
   if (!el.bubble.hidden) regions.push(rectOf(el.bubble));
   if (menuEl) regions.push(rectOf(menuEl));
   if (buddy.pet) regions.push(rectOf(el.buddy));
@@ -2002,6 +2005,13 @@ listen("pet://settings", ({ payload }) => reloadSettings(payload));
 // --- task agent narration ------------------------------------------------------
 // The Rust agent streams progress; the pet plays it out in its bubble and logs
 // finished errands in the journal. The full answer lives in the Tasks window.
+
+const companion = createCompanion({
+  invoke, listen,
+  getPetElement: () => el.pet,
+  getQuiet: () => state.hidden || state.quiet || state.dragging || games.isActive(),
+  onError: (message) => say(message, 4000),
+});
 
 let taskAnim = null;
 
