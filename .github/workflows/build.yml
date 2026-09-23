@@ -64,13 +64,69 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf \
             libx11-dev libxtst-dev libdbus-1-dev libgtk-3-dev
+      # `bundleMediaFramework` makes linuxdeploy copy the GStreamer plugins into
+      # the AppImage, which they have to be installed here for. Without them the
+      # AppImage ships an empty usr/lib/gstreamer-1.0 while AppRun still points
+      # GST_PLUGIN_SYSTEM_PATH_1_0 at it, so WebKit finds no appsrc/appsink and
+      # the webview never starts (tauri-apps/tauri#15665).
+      - name: Linux GStreamer plugins for the AppImage
+        if: matrix.name == 'linux'
+        run: |
+          sudo apt-get install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev             gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad             gstreamer1.0-pulseaudio gstreamer1.0-libav
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --lib ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked
+      # Gatekeeper reports a quarantined macOS bundle that carries no code
+      # signature at all as "is damaged and can't be opened". Sign with a
+      # Developer ID (and notarize) when the secrets are configured; otherwise
+      # fall back to an ad-hoc signature, which is free, needs no Apple account
+      # and is enough to stop the "damaged" verdict. Users still get the
+      # "Apple could not verify..." prompt until the app is notarized.
+      - name: Set up macOS code signing
+        if: startsWith(matrix.name, 'macos')
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "No APPLE_CERTIFICATE secret - ad-hoc signing the bundle."
+            echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          KEYCHAIN="$RUNNER_TEMP/pocketpet-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$KEYCHAIN"             -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign:             -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$KEYCHAIN"
+          {
+            echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
+            echo "APPLE_ID=$APPLE_ID"
+            echo "APPLE_PASSWORD=$APPLE_PASSWORD"
+            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+          } >> "$GITHUB_ENV"
       - name: Build
         run: cargo tauri build --bundles ${{ matrix.bundles }} ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
         working-directory: src-tauri
+      - name: Verify the macOS signature
+        if: startsWith(matrix.name, 'macos')
+        run: |
+          APP="src-tauri/target/${{ matrix.target }}/release/bundle/macos/PocketPet.app"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dvv "$APP" 2>&1 | sed -n '1,12p'
+          # Not notarized without the secrets, so this is informational only.
+          spctl --assess --type exec --verbose=4 "$APP" || true
       - uses: actions/upload-artifact@v4
         with:
           name: PocketPet-${{ matrix.name }}

@@ -235,9 +235,77 @@ links to automatically:
 | Platform | Package | Notes |
 |---|---|---|
 | Windows | `PocketPet_x.y.z_x64-setup.exe` | NSIS installer |
-| macOS (Apple Silicon) | `PocketPet_x.y.z_aarch64.dmg` | unsigned: right-click → Open the first time, or `xattr -d com.apple.quarantine PocketPet.app` |
+| macOS (Apple Silicon) | `PocketPet_x.y.z_aarch64.dmg` | ad-hoc signed, not notarized — see *Opening the unnotarized macOS build* |
 | macOS (Intel) | `PocketPet_x.y.z_x64.dmg` | same |
-| Linux | `PocketPet_x.y.z_amd64.AppImage`, `.deb` | needs WebKitGTK 4.1; X11 for click-through and the cursor poller |
+| Linux | `PocketPet_x.y.z_amd64.AppImage`, `.deb` | needs WebKitGTK 4.1 and (for the AppImage) FUSE 2; X11 for click-through and the cursor poller |
+
+#### Opening the unnotarized macOS build
+
+Releases are signed ad-hoc, not with an Apple Developer ID, so Gatekeeper
+blocks the first launch. Drag the app to Applications, then either open it
+once from Finder with **right-click → Open**, or approve it under **System
+Settings → Privacy & Security → Open Anyway**.
+
+If macOS instead says **“PocketPet is damaged and can’t be opened”**, the copy
+came from a release built before ad-hoc signing was added. Strip the download
+quarantine flag from the whole bundle — `-r` matters, the flag is on the nested
+files too:
+
+```bash
+xattr -cr /Applications/PocketPet.app
+```
+
+#### Installing on Linux
+
+The `.deb` is the recommended package on Debian and Ubuntu — it uses the
+system WebKit and GStreamer, so none of the bundling problems below apply:
+
+```bash
+sudo apt install ./PocketPet_x.y.z_amd64.deb
+pocketpet
+```
+
+The AppImage is for everything else:
+
+```bash
+chmod +x PocketPet_x.y.z_amd64.AppImage
+./PocketPet_x.y.z_amd64.AppImage
+```
+
+It needs FUSE 2, which Ubuntu 24.04+ and Fedora 40+ no longer ship. On
+`dlopen(): error loading libfuse.so.2`, install it (`sudo apt install
+libfuse2t64`, `sudo dnf install fuse-libs`) or run
+`./PocketPet_x.y.z_amd64.AppImage --appimage-extract-and-run`.
+
+**AppImages from 0.1.0 have a broken webview.** The pet never appears and the
+console shows:
+
+```
+GStreamer element appsrc not found. Please install it
+GStreamer element autoaudiosink not found. Please install it
+```
+
+Tauri's `AppRun` always points `GST_PLUGIN_SYSTEM_PATH_1_0` at the bundle's own
+`usr/lib/gstreamer-1.0`, which 0.1.0 shipped empty, so WebKit searched an empty
+directory instead of the system one and its media pipeline never came up
+([tauri-apps/tauri#15665](https://github.com/tauri-apps/tauri/issues/15665)).
+Installing GStreamer packages on the host does not help — the override means
+they are never looked at. Later builds set `bundleMediaFramework` and ship the
+plugins. Until then, use the `.deb`, or run the bundle against the system
+libraries:
+
+```bash
+./PocketPet_0.1.0_amd64.AppImage --appimage-extract
+rm -f squashfs-root/usr/lib/libgst*.so*
+rm -f squashfs-root/usr/lib/lib{glib,gio,gobject,gmodule}-2.0.so*
+ln -s /usr/lib/x86_64-linux-gnu/gstreamer-1.0 squashfs-root/usr/lib/gstreamer-1.0
+./squashfs-root/AppRun
+```
+
+The same over-bundling is behind the noisier `libgvfscommon.so: undefined
+symbol: g_task_set_static_name` lines: the AppImage carries the build machine's
+GLib 2.72 (Ubuntu 22.04), and a host with GLib 2.76+ has gvfs modules that need
+symbols 2.72 does not have. Those messages are harmless.
 
 Building locally instead:
 

@@ -11,6 +11,6 @@
 | Research task | median < 60 s | eval |
 | Browser task | median < 120 s | eval |
 | Memory (RSS) | overlay + windows < 300 MB; browser separate | Task Manager |
-| Disk | debug target dir pruned; Windows installer < 3 MB, DMG < 10 MB, AppImage < 90 MB | `du`, file size |
+| Disk | debug target dir pruned; Windows installer < 3 MB, DMG < 10 MB, AppImage < 140 MB (GStreamer plugins are bundled) | `du`, file size |
 
 Regression check: run the eval and compare seconds/steps with the previous `eval-results.json`.

@@ -13,8 +13,8 @@ Your desktop pet that also runs errands.
 
 **Install**
 - Windows 10/11 x64: `PocketPet_0.1.0_x64-setup.exe` (per-user, no admin).
-- macOS 11+: `PocketPet_0.1.0_aarch64.dmg` (Apple Silicon) or `PocketPet_0.1.0_x64.dmg` (Intel). Unsigned — right-click → Open the first time.
-- Linux x86-64 (X11/XWayland): `PocketPet_0.1.0_amd64.AppImage` or `.deb`.
+- macOS 11+: `PocketPet_0.1.0_aarch64.dmg` (Apple Silicon) or `PocketPet_0.1.0_x64.dmg` (Intel). Ad-hoc signed, not notarized — right-click → Open the first time, or System Settings → Privacy & Security → Open Anyway. If a build says “PocketPet is damaged and can’t be opened” it predates ad-hoc signing: `xattr -cr /Applications/PocketPet.app`.
+- Linux x86-64 (X11/XWayland): use `.deb` — `sudo apt install ./PocketPet_0.1.0_amd64.deb`. **The 0.1.0 AppImage is broken**: it bundles no GStreamer plugins while `AppRun` still overrides `GST_PLUGIN_SYSTEM_PATH_1_0`, so WebKit reports `GStreamer element appsrc not found` and the pet never appears. Fixed in the next release; workaround in the README.
 
 Or let <https://pocketpet-web.vercel.app/> pick for you.
 
