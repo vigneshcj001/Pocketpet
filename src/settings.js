@@ -568,6 +568,10 @@ for (const key of Object.keys(DEFAULTS.shortcuts)) {
 
 // --- updates & diagnostics --------------------------------------------------------
 
+invoke("build_identity")
+  .then((identity) => { $("buildIdentity").textContent = identity; })
+  .catch(() => { $("buildIdentity").textContent = "Build information unavailable. Restart PocketPet after installing an update."; });
+
 let pendingUpdate = null;
 $("checkUpdate").addEventListener("click", async () => {
   $("updateStatus").textContent = "Checking…";

@@ -1,44 +1,34 @@
-# Build a real Windows installer for PocketPet.
-# Output: src-tauri\target\release\bundle\nsis\PocketPet_0.1.0_x64-setup.exe
+# Build a Windows installer from the current source.
+# Output: src-tauri\target\release\bundle\nsis\PocketPet_<version>_x64-setup.exe
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "scripts\init-rust.ps1")
 
-# Rust does not have to live in C:\Users\<you>\.cargo - ours is on D:. A terminal opened
-# before CARGO_HOME was set will not have it, so fall back to the persisted user value.
-$cargoHome  = $env:CARGO_HOME
-$rustupHome = $env:RUSTUP_HOME
-if (-not $cargoHome)  { $cargoHome  = [Environment]::GetEnvironmentVariable("CARGO_HOME", "User") }
-if (-not $rustupHome) { $rustupHome = [Environment]::GetEnvironmentVariable("RUSTUP_HOME", "User") }
-if (-not $cargoHome)  { $cargoHome  = Join-Path $env:USERPROFILE ".cargo" }
-if (-not $rustupHome) { $rustupHome = Join-Path $env:USERPROFILE ".rustup" }
-
-# cargo and rustc read these to find the registry cache and the toolchain.
-$env:CARGO_HOME  = $cargoHome
-$env:RUSTUP_HOME = $rustupHome
-
-$cargoBin = Join-Path $cargoHome "bin"
-if (Test-Path $cargoBin) { $env:Path = "$cargoBin;$env:Path" }
-
-if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
-    Write-Error "cargo not found. Install Rust from https://rustup.rs then reopen this terminal."
-}
-
-# The Tauri CLI does the bundling; plain `cargo build` only makes the .exe.
 if (-not (Get-Command cargo-tauri -ErrorAction SilentlyContinue)) {
     Write-Host "Installing the Tauri CLI (one time, a few minutes)..." -ForegroundColor Cyan
     cargo install tauri-cli --version "^2" --locked
+    if ($LASTEXITCODE -ne 0) { throw "Installing the Tauri CLI failed (exit $LASTEXITCODE)." }
 }
 
-Set-Location (Join-Path $PSScriptRoot "src-tauri")
-cargo tauri build
-
-$installer = Get-ChildItem -Recurse -Filter "*-setup.exe" `
-    -Path (Join-Path $PSScriptRoot "src-tauri\target\release\bundle") -ErrorAction SilentlyContinue |
-    Select-Object -First 1
-
-if ($installer) {
-    Write-Host ""
-    Write-Host "Installer ready:" -ForegroundColor Green
-    Write-Host "  $($installer.FullName)"
-} else {
-    Write-Warning "Build finished but no installer was found under target\release\bundle."
+$config = Get-Content (Join-Path $PSScriptRoot "src-tauri\tauri.conf.json") -Raw | ConvertFrom-Json
+$buildStarted = [DateTime]::UtcNow
+Push-Location (Join-Path $PSScriptRoot "src-tauri")
+try {
+    cargo tauri build --bundles nsis
+    if ($LASTEXITCODE -ne 0) {
+        throw "PocketPet build failed (exit $LASTEXITCODE). Existing installers are from an earlier build."
+    }
+} finally {
+    Pop-Location
 }
+
+$installer = Get-ChildItem -Path (Join-Path $PSScriptRoot "src-tauri\target\release\bundle\nsis") `
+    -Filter "PocketPet_$($config.version)_*-setup.exe" -ErrorAction SilentlyContinue |
+    Where-Object { $_.LastWriteTimeUtc -ge $buildStarted } |
+    Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+if (-not $installer) {
+    throw "No new installer for version $($config.version) was produced. Do not install an older file."
+}
+
+Write-Host "Installer ready: $($installer.FullName)" -ForegroundColor Green
+Write-Host "Run this installer, then reopen PocketPet from your usual shortcut."
+Write-Host "Pushing source to GitHub does not update an already installed copy."

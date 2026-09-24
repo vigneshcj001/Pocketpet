@@ -556,10 +556,15 @@ fn open_logs_folder() -> bool {
     open_path(&dir.display().to_string())
 }
 
-/// Version, OS, providers with keys (never the keys), recent panics — for a bug report.
+#[tauri::command]
+fn build_identity() -> String {
+    format!("PocketPet {} · build {} ({})", env!("CARGO_PKG_VERSION"), env!("POCKETPET_REVISION"), env!("POCKETPET_BUILD_PROFILE"))
+}
+
+/// Build, OS, providers with keys (never the keys), recent panics — for a bug report.
 #[tauri::command]
 fn diagnostics() -> String {
-    let mut out = format!("PocketPet {}\n{} {}\n", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH);
+    let mut out = format!("{}\n{} {}\n", build_identity(), std::env::consts::OS, std::env::consts::ARCH);
     let keyed: Vec<&str> = agent::PROVIDERS.iter().filter(|p| agent::read_key(p.id).is_some()).map(|p| p.id).collect();
     out.push_str(&format!("Providers with keys: {}\n", if keyed.is_empty() { "none".to_string() } else { keyed.join(", ") }));
     let logs = agent::data_dir().join("logs");
@@ -1096,6 +1101,7 @@ pub fn run() {
             agent_open_site,
             open_task_log,
             open_logs_folder,
+            build_identity,
             diagnostics,
             check_update,
             install_update,

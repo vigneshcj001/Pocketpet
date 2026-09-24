@@ -1,6 +1,6 @@
 [package]
 name = "pocketpet"
-version = "0.1.0"
+version = "0.2.0"
 description = "PocketPet - desktop pet that follows your cursor and clicks your window buttons"
 authors = ["vigneshcj001"]
 edition = "2021"
