@@ -16,7 +16,7 @@ import {
   STORAGE_KEY,
 } from "./preferences.js";
 import { getPet } from "./pets/index.js";
-import { tintedSvg, customImageSvg, renderAccessoryNodes } from "./appearance.js";
+import { paintPetSprite, customImageSvg, renderAccessoryNodes } from "./appearance.js";
 
 const { emit } = window.__TAURI__.event;
 const { invoke } = window.__TAURI__.core;
@@ -303,11 +303,7 @@ function renderPreview(id) {
   settings = readSettings();
   const p = spriteFor(id);
   const sprite = $("previewSprite");
-  const key = `${id}|${settings.colors[id] ?? ""}`;
-  if (sprite.dataset.key !== key) {
-    sprite.dataset.key = key; sprite.dataset.pet = p.id;
-    sprite.innerHTML = tintedSvg(p, settings.colors[id]);
-  }
+  paintPetSprite(sprite, p, settings.colors[id]);
   renderAccessoryNodes($("previewAccessories"), settings.accessories[id] ?? []);
   $("previewPet").dataset.personality = settings.personalities[id] ?? "calm";
 }

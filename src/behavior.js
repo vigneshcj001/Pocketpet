@@ -27,6 +27,13 @@ export function nearestMonitor(monitors, point) {
   return monitors.reduce((best, item) => distance(item) < distance(best) ? item : best);
 }
 
+/** Resolve a monitor and its matching usable work area from the same array. */
+export function monitorBounds(monitors, workAreas, selected, point, fallback) {
+  const index = selected !== "all" && monitors[Number(selected)]
+    ? Number(selected) : monitors.indexOf(nearestMonitor(monitors, point));
+  return workAreas[index] ?? monitors[index] ?? fallback;
+}
+
 export function insetBounds(rect, margin, size, bottomOnly = false) {
   const inset = Math.min(margin, Math.max(0, (Math.min(rect.w, rect.h) - size) / 2));
   const result = { x: rect.x + inset, y: rect.y + inset, w: rect.w - inset * 2, h: rect.h - inset * 2 };

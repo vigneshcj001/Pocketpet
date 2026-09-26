@@ -2,6 +2,16 @@
 // dependency beyond producing markup strings.
 
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
+const spriteCache = new WeakMap();
+
+/** Preserve animation state until the artwork, pet, or selected colour changes. */
+export function paintPetSprite(root, pet, color = "") {
+  const previous = spriteCache.get(root);
+  if (previous?.id === pet.id && previous.svg === pet.svg && previous.color === color) return;
+  root.dataset.pet = pet.id;
+  root.innerHTML = tintedSvg(pet, color);
+  spriteCache.set(root, { id: pet.id, svg: pet.svg, color });
+}
 
 export function hexToHsl(hex) {
   const n = parseInt(hex.slice(1), 16);

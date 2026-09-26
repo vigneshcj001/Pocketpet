@@ -225,8 +225,15 @@ live.
 ```
 
 This installs the Tauri CLI if needed and produces
-`src-tauri\target\release\bundle\nsis\PocketPet_0.1.0_x64-setup.exe`. Run that to
+`src-tauri\target\release\bundle\nsis\PocketPet_<version>_x64-setup.exe`. Run that to
 install PocketPet like any other app.
+
+Pushing source to `main` does not replace an installed app or publish a new
+download. Install the newly built installer and restart PocketPet. For public
+updates, commit matching versions in `Cargo.toml`, `Cargo.lock`, and
+`tauri.conf.json`, then push a new matching `v*` tag. See the
+[release steps](docs/08_DevOps/CI_CD.md). Settings → Backup → Updates shows the
+installed version and build so you can confirm which code is running.
 
 To start it with Windows, use **Run at startup** in the pet menu or tray menu.
 

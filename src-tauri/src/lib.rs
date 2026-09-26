@@ -56,6 +56,30 @@ struct HitRegions(Mutex<Vec<Rect>>);
 #[derive(Default)]
 struct LastForeground(Mutex<isize>);
 
+/// A new Tasks webview may not have installed its event listeners yet. Keep
+/// hotkey actions until that webview explicitly consumes them.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+enum TaskIntent {
+    Voice,
+    Clip { text: String },
+}
+
+#[derive(Default)]
+struct PendingTaskIntents(Mutex<Vec<TaskIntent>>);
+
+impl PendingTaskIntents {
+    fn push(&self, intent: TaskIntent) {
+        if let Ok(mut pending) = self.0.lock() {
+            pending.push(intent);
+        }
+    }
+
+    fn take(&self) -> Vec<TaskIntent> {
+        self.0.lock().map(|mut pending| std::mem::take(&mut *pending)).unwrap_or_default()
+    }
+}
+
 /// Runtime toggles that the cursor thread needs to read cheaply.
 struct Flags {
     /// When false the overlay is click-through everywhere, so the pet becomes
@@ -297,14 +321,26 @@ fn set_low_power(enabled: bool, flags: State<'_, Flags>) {
     flags.low_power.store(enabled, Ordering::Relaxed);
 }
 
-/// The frontend owns size/speed/break settings (they live in localStorage), so
-/// it tells the tray which radio entries to tick after boot and on every change.
+/// The frontend owns the saved settings, so synchronize both radio entries and
+/// checkboxes after boot and whenever settings change.
 #[tauri::command]
-fn sync_tray(size: String, speed: String, break_mins: u32, app: AppHandle) {
+fn sync_tray(
+    size: String, speed: String, break_mins: u32,
+    follow: Option<bool>, mischief: Option<bool>, real_click: Option<bool>,
+    toggle_shortcut: Option<String>, app: AppHandle,
+) {
     if let Some(t) = app.try_state::<TrayToggles>() {
         t.select_radio(&format!("size:{size}"));
         t.select_radio(&format!("speed:{speed}"));
         t.select_radio(&format!("break:{break_mins}"));
+        if let Some(value) = follow { let _ = t.follow.set_checked(value); }
+        if let Some(value) = mischief { let _ = t.mischief.set_checked(value); }
+        if let Some(value) = real_click { let _ = t.real_click.set_checked(value); }
+        if let Some(shortcut) = toggle_shortcut {
+            let label = if shortcut.trim().is_empty() { "Hide pet".to_owned() }
+                else { format!("Hide pet  ({shortcut})") };
+            let _ = t.hide.set_text(label);
+        }
     }
 }
 
@@ -349,7 +385,7 @@ fn get_environment(window: WebviewWindow) -> Environment {
 /// Re-register the global hotkeys from the user's settings. Returns the
 /// names of actions whose combination could not be parsed or registered.
 #[tauri::command]
-fn set_hotkeys(shortcuts: Shortcuts) -> Vec<String> {
+async fn set_hotkeys(shortcuts: Shortcuts) -> Result<Vec<String>, String> {
     use startup::{parse_combo, HotkeyAction};
     let mut bindings = Vec::new();
     let mut bad = Vec::new();
@@ -371,8 +407,15 @@ fn set_hotkeys(shortcuts: Shortcuts) -> Vec<String> {
             None => bad.push(name.to_string()),
         }
     }
-    startup::set_hotkeys(bindings);
-    bad
+    let failed = tauri::async_runtime::spawn_blocking(move || startup::set_hotkeys(bindings))
+        .await.map_err(|error| error.to_string())?;
+    bad.extend(failed.into_iter().map(|action| match action {
+        HotkeyAction::Toggle => "toggle", HotkeyAction::Feed => "feed",
+        HotkeyAction::Play => "play", HotkeyAction::Settings => "settings",
+        HotkeyAction::Tasks => "tasks", HotkeyAction::Kill => "kill",
+        HotkeyAction::Voice => "voice", HotkeyAction::Clip => "clip",
+    }.to_owned()));
+    Ok(bad)
 }
 
 #[cfg(windows)]
@@ -661,6 +704,26 @@ async fn open_tasks(app: AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn consume_task_intents(window: WebviewWindow, pending: State<'_, PendingTaskIntents>) -> Vec<TaskIntent> {
+    if window.label() != "tasks" { return Vec::new(); }
+    pending.take()
+}
+
+fn dispatch_task_intent(app: &AppHandle, intent: TaskIntent) {
+    if let Some(pending) = app.try_state::<PendingTaskIntents>() {
+        pending.push(intent);
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if open_tasks(app.clone()).await.is_ok() {
+            // This is only a wake-up signal. Startup also drains the queue, so
+            // a signal sent before listeners exist cannot lose an action.
+            let _ = app.emit_to("tasks", "pet://task-intents", ());
+        }
+    });
+}
+
 /// Open a link in the user's default browser (the task answers are full of them).
 #[tauri::command]
 fn open_external(url: String) -> bool {
@@ -759,19 +822,11 @@ fn on_hotkey(app: &AppHandle, action: startup::HotkeyAction) {
             });
         }
         Voice => {
-            let app = app.clone();
-            tauri::async_runtime::spawn(async move {
-                let _ = open_tasks(app.clone()).await;
-                let _ = app.emit("pet://voice", serde_json::json!({}));
-            });
+            dispatch_task_intent(app, TaskIntent::Voice);
         }
         Clip => {
             let text = extras::clipboard_text().unwrap_or_default();
-            let app = app.clone();
-            tauri::async_runtime::spawn(async move {
-                let _ = open_tasks(app.clone()).await;
-                let _ = app.emit("pet://clip", serde_json::json!({ "text": text }));
-            });
+            dispatch_task_intent(app, TaskIntent::Clip { text });
         }
     }
 }
@@ -1054,6 +1109,7 @@ pub fn run() {
         .manage(HitRegions::default())
         .manage(Arc::new(agent::Tasks::default()))
         .manage(LastForeground::default())
+        .manage(PendingTaskIntents::default())
         .manage(Flags {
             interactive: AtomicBool::new(true),
             hidden: AtomicBool::new(false),
@@ -1107,6 +1163,7 @@ pub fn run() {
             install_update,
             window_for_pid,
             open_tasks,
+            consume_task_intents,
             open_external,
             quit_app,
         ])
@@ -1188,4 +1245,21 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running PocketPet");
+}
+
+#[cfg(test)]
+mod native_tests {
+    use super::*;
+
+    #[test]
+    fn task_hotkeys_survive_window_startup_and_are_consumed_once_in_order() {
+        let pending = PendingTaskIntents::default();
+        pending.push(TaskIntent::Voice);
+        pending.push(TaskIntent::Clip { text: "clipboard before startup".into() });
+        assert_eq!(pending.take(), vec![TaskIntent::Voice,
+            TaskIntent::Clip { text: "clipboard before startup".into() }]);
+        assert!(pending.take().is_empty(), "the wake-up event must not repeat startup actions");
+        pending.push(TaskIntent::Clip { text: "later clipboard".into() });
+        assert_eq!(pending.take(), vec![TaskIntent::Clip { text: "later clipboard".into() }]);
+    }
 }

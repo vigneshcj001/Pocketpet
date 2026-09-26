@@ -302,7 +302,7 @@ impl Browser {
 
     /// Numbered interactive elements + readable text. Refs live in window.__ppRefs.
     pub async fn read_page(&self) -> Result<String, String> {
-        let v = self.eval(READ_PAGE_JS).await?;
+        let v = self.eval(&READ_PAGE_JS.replace("/*ELEMENT_INFO*/", ELEMENT_INFO_JS)).await?;
         Ok(v.as_str().unwrap_or("").to_string())
     }
 
@@ -310,9 +310,7 @@ impl Browser {
     pub async fn describe(&self, r#ref: u32) -> Result<Value, String> {
         let v = self
             .eval(&format!(
-                r#"(() => {{ const el = (window.__ppRefs||[])[{r}]; if (!el) return null;
-                    const t = (el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.name || el.id || '').trim().slice(0,120);
-                    return {{ tag: el.tagName.toLowerCase(), type: (el.type||'').toLowerCase(), text: t, autocomplete: (el.getAttribute('autocomplete')||'').toLowerCase(), href: el.href||'' }}; }})()"#,
+                "({ELEMENT_INFO_JS})((window.__ppRefs||[])[{r}])",
                 r = r#ref
             ))
             .await?;
@@ -322,11 +320,15 @@ impl Browser {
         Ok(v)
     }
 
+    pub async fn focused_element(&self) -> Result<Value, String> {
+        self.eval(&format!("({ELEMENT_INFO_JS})(document.activeElement)")).await
+    }
+
     /// Scroll a ref into view and return its centre in CSS px, plus the page's DPR.
     async fn center(&self, r#ref: u32) -> Result<(f64, f64), String> {
         let v = self
             .eval(&format!(
-                r#"(() => {{ const el = (window.__ppRefs||[])[{r}]; if (!el) return null;
+                r#"(() => {{ const el = (window.__ppRefs||[])[{r}]; if (!el || !el.isConnected) return null;
                     el.scrollIntoView({{ block: 'center', inline: 'center' }});
                     const b = el.getBoundingClientRect();
                     return {{ x: b.left + b.width / 2, y: b.top + b.height / 2 }}; }})()"#,
@@ -368,7 +370,7 @@ impl Browser {
                 r = r#ref
             ))
             .await;
-        self.press("Control+a").await?;
+        self.press(if cfg!(target_os = "macos") { "Meta+a" } else { "Control+a" }).await?;
         self.cmd("Input.insertText", json!({ "text": text })).await?;
         if submit {
             self.press("Enter").await?;
@@ -380,7 +382,7 @@ impl Browser {
     pub async fn select(&self, r#ref: u32, value: &str) -> Result<String, String> {
         let v = self
             .eval(&format!(
-                r#"(() => {{ const el = (window.__ppRefs||[])[{r}]; if (!el || el.tagName !== 'SELECT') return 'not a select';
+                r#"(() => {{ const el = (window.__ppRefs||[])[{r}]; if (!el || !el.isConnected || el.tagName !== 'SELECT') return 'not a select';
                     const want = {val}.toLowerCase();
                     const opt = [...el.options].find(o => o.value.toLowerCase() === want || o.text.trim().toLowerCase() === want)
                              || [...el.options].find(o => o.text.toLowerCase().includes(want));
@@ -473,9 +475,26 @@ impl Browser {
     }
 }
 
+// Field labels, never their entered values, describe actions and secret fields.
+// Keep this shared by the page snapshot and the approval/typing gates.
+const ELEMENT_INFO_JS: &str = r#"(el) => {
+  if (!el || !el.isConnected) return null;
+  const clean = (t) => (t || '').replace(/\s+/g, ' ').trim();
+  const tag = el.tagName.toLowerCase();
+  const type = (el.type || '').toLowerCase();
+  const label = clean([...(el.labels || [])].map(l => l.innerText).join(' ') || el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.name || el.id);
+  const text = clean(tag === 'input' ? (['submit', 'button', 'reset'].includes(type) ? el.value || label : label) : el.innerText || label).slice(0, 120);
+  const autocomplete = (el.getAttribute('autocomplete') || '').toLowerCase();
+  const secret = type === 'password' || /(password|passwd|cvv|cvc|card[ _-]?number|cc-number|cc-csc|cc-exp|otp|one-time|security code|pin\b)/i.test([label, el.name, el.id, autocomplete].join(' '));
+  const form = el.form;
+  const formText = form ? [...form.querySelectorAll('button:not([type]), button[type="submit"], input[type="submit"]')].map(b => clean(b.innerText || b.value || b.getAttribute('aria-label'))).join(' ') : '';
+  return { tag, type, text, autocomplete, secret, href: el.href || '', formText, formAction: form ? form.action || '' : '' };
+}"#;
+
 /// Builds the model-facing view of the page. Kept in one place so it is easy
 /// to tune what the model sees.
 const READ_PAGE_JS: &str = r#"(() => {
+  const describe = /*ELEMENT_INFO*/;
   const vis = (el) => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
     return r.width > 2 && r.height > 2 && s.visibility !== 'hidden' && s.display !== 'none' && r.bottom > -200 && r.top < innerHeight + 1200; };
   const clean = (t) => (t || '').replace(/\s+/g, ' ').trim();
@@ -488,10 +507,11 @@ const READ_PAGE_JS: &str = r#"(() => {
     const role = el.getAttribute('role');
     let kind = tag === 'a' ? 'link' : tag === 'input' ? 'input(' + (el.type || 'text') + ')' : tag === 'textarea' ? 'textarea' : tag === 'select' ? 'select' : role || tag;
     if (tag === 'input' && (el.type === 'hidden')) continue;
-    let text = clean(el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.title || el.alt || el.name || '');
+    const info = describe(el);
+    let text = info.secret ? info.text : clean(el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.title || el.alt || el.name || '');
     if (tag === 'input' && el.type !== 'submit' && el.type !== 'button') {
       const lab = el.labels && el.labels[0] ? clean(el.labels[0].innerText) : '';
-      text = [lab, el.placeholder ? 'placeholder="' + clean(el.placeholder) + '"' : '', el.value ? 'value="' + clean(el.value).slice(0, 40) + '"' : ''].filter(Boolean).join(' ');
+      text = [lab || info.text, el.placeholder ? 'placeholder="' + clean(el.placeholder) + '"' : '', info.secret ? '[private value hidden]' : el.value ? 'value="' + clean(el.value).slice(0, 40) + '"' : ''].filter(Boolean).join(' ');
     }
     if (tag === 'select') text += ' [' + [...el.options].slice(0, 8).map(o => clean(o.text)).join(' | ') + (el.options.length > 8 ? ' | …' : '') + ']';
     if (!text && tag !== 'input' && tag !== 'textarea') continue;

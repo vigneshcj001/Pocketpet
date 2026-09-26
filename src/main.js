@@ -1,5 +1,5 @@
 import { getPet as getBuiltinPet, PETS, DEFAULT_PET } from "./pets/index.js";
-import { tintedSvg, customImageSvg, renderAccessoryNodes } from "./appearance.js";
+import { paintPetSprite, customImageSvg, renderAccessoryNodes } from "./appearance.js";
 import {
   readSettings,
   writeSettings,
@@ -11,6 +11,7 @@ import {
   focusActive,
   hungerAfter,
   nearestMonitor,
+  monitorBounds,
   insetBounds,
   exclusionRect,
   constrainPoint,
@@ -254,13 +255,8 @@ function monitorAt(x, y) {
 function roamBounds() {
   const mons = monitorsCss();
   const work = (screen.work_areas ?? []).map(cssRect);
-  let index;
-  if (settings.monitor !== "all" && mons[Number(settings.monitor)]) {
-    index = Number(settings.monitor);
-  } else {
-    index = mons.indexOf(monitorAt(footX(), footY()));
-  }
-  const home = work[index] ?? mons[index] ?? { x: 0, y: 0, w: overlayW(), h: overlayH() };
+  const home = monitorBounds(mons, work, settings.monitor, { x: footX(), y: footY() },
+    { x: 0, y: 0, w: overlayW(), h: overlayH() });
   return insetBounds(home, settings.roamMargin, SIZE, settings.roamBottomOnly);
 }
 
@@ -408,6 +404,10 @@ function applySize() {
 /** The tray menu lives in Rust and cannot see localStorage; keep its ticks honest. */
 function syncTray() {
   invoke("sync_tray", {
+    follow: settings.follow,
+    mischief: settings.mischief,
+    realClick: settings.realClick,
+    toggleShortcut: settings.shortcuts.toggle,
     size: settings.size,
     speed: settings.speed,
     breakMins: [0, 25, 45, 60].includes(settings.breakMins) ? settings.breakMins : 0,
@@ -458,11 +458,7 @@ function mountPet(id, quiet) {
 
 /** Paint a sprite only when its colour/pet actually changed (innerHTML restarts CSS animations). */
 function paintSprite(root, p, id) {
-  const key = `${p.id}|${settings.colors[id] ?? ""}`;
-  if (root.dataset.key === key) return;
-  root.dataset.key = key;
-  root.dataset.pet = p.id;
-  root.innerHTML = tintedSvg(p, settings.colors[id]);
+  paintPetSprite(root, p, settings.colors[id]);
 }
 
 function renderAccessories(container, id) {
@@ -503,10 +499,12 @@ function face(dir) {
 
 let bubbleTimer = null;
 let typeTimer = null;
+let bubbleExitTimer = null;
 
 function say(text, holdMs) {
   if (!text) return;
   clearTimeout(bubbleTimer);
+  clearTimeout(bubbleExitTimer);
   clearInterval(typeTimer);
   el.bubble.hidden = false;
   el.bubble.classList.remove("leaving");
@@ -524,9 +522,12 @@ function say(text, holdMs) {
 }
 
 function hideBubble() {
+  clearTimeout(bubbleTimer);
+  clearInterval(typeTimer);
+  clearTimeout(bubbleExitTimer);
   if (el.bubble.hidden) return;
   el.bubble.classList.add("leaving");
-  setTimeout(() => {
+  bubbleExitTimer = setTimeout(() => {
     el.bubble.hidden = true;
     el.bubble.classList.remove("leaving");
   }, 180);
@@ -1200,6 +1201,7 @@ el.pet.addEventListener("contextmenu", (e) => {
 function toggle(key) {
   settings[key] = !settings[key];
   saveSettings();
+  syncTray();
   const name = { realClick: "Real clicks", follow: "Follow cursor", sound: "Sound" }[key] ?? key;
   say(`${name} ${settings[key] ? "on" : "off"}`, 1400);
   if (key === "sound" && settings.sound) playChirp();
@@ -1998,6 +2000,7 @@ listen("pet://menu", ({ payload }) => {
   else if (id === "act:minimize") return mission("minimize");
   else if (id === "act:close") return confirmClose();
   saveSettings();
+  syncTray();
 });
 
 listen("pet://settings", ({ payload }) => reloadSettings(payload));

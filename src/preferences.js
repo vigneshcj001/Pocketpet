@@ -110,7 +110,9 @@ export function normalizeSettings(input) {
   if (legacy && !seen.has("custom:legacy") && next.customPets.length < 12) {
     next.customPets.push({ id: "custom:legacy", name: "Custom pet", image: legacy });
   }
-  next.customImage = legacy;
+  // The legacy field is consumed once. Keeping it would resurrect a removed
+  // custom:legacy pet and retain a second copy of its image in localStorage.
+  next.customImage = null;
   const ids = [...BUILTIN_IDS, ...next.customPets.map((pet) => pet.id)];
   next.pet = choice(raw.pet === "custom" ? "custom:legacy" : raw.pet, ids, "droplet");
   next.companion = choice(raw.companion === "custom" ? "custom:legacy" : raw.companion, ["", ...ids], "");
