@@ -488,7 +488,7 @@ const ELEMENT_INFO_JS: &str = r#"(el) => {
   const secret = type === 'password' || /(password|passwd|cvv|cvc|card[ _-]?number|cc-number|cc-csc|cc-exp|otp|one-time|security code|pin\b)/i.test([label, el.name, el.id, autocomplete].join(' '));
   const form = el.form;
   const formText = form ? [...form.querySelectorAll('button:not([type]), button[type="submit"], input[type="submit"]')].map(b => clean(b.innerText || b.value || b.getAttribute('aria-label'))).join(' ') : '';
-  return { tag, type, text, autocomplete, secret, href: el.href || '', formText, formAction: form ? form.action || '' : '' };
+  return { tag, type, text, autocomplete, secret, role: el.getAttribute('role') || '', href: el.href || '', formText, formAction: form ? form.action || '' : '' };
 }"#;
 
 /// Builds the model-facing view of the page. Kept in one place so it is easy

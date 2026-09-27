@@ -351,7 +351,9 @@ fn urldecode(s: &str) -> String {
     while i < bytes.len() {
         match bytes[i] {
             b'%' if i + 2 < bytes.len() => {
-                if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                // Work on bytes: a malformed escape followed by a multi-byte
+                // character must not slice through a UTF-8 code point.
+                if let Some(v) = std::str::from_utf8(&bytes[i + 1..i + 3]).ok().and_then(|hex| u8::from_str_radix(hex, 16).ok()) {
                     out.push(v);
                     i += 3;
                     continue;
@@ -530,8 +532,8 @@ fn is_sensitive(desc: &Value) -> Option<String> {
     let text = desc.get("text").and_then(Value::as_str).unwrap_or("");
     let href = desc.get("href").and_then(Value::as_str).unwrap_or("");
     let re = regex_lite::Regex::new(SENSITIVE).unwrap();
-    if re.is_match(text) || re.is_match(href) {
-        return Some(text.to_string());
+    if re.is_match(text) || re.is_match(href) || is_sensitive_url(href) {
+        return Some(format!("{text} {href}").trim().to_string());
     }
     None
 }
@@ -549,7 +551,23 @@ fn is_secret_field(desc: &Value) -> bool {
     let ac = desc.get("autocomplete").and_then(Value::as_str).unwrap_or("");
     let text = desc.get("text").and_then(Value::as_str).unwrap_or("");
     let re = regex_lite::Regex::new(SECRET_FIELD).unwrap();
-    t == "password" || re.is_match(ac) || re.is_match(text)
+    desc.get("secret").and_then(Value::as_bool).unwrap_or(false) || t == "password" || re.is_match(ac) || re.is_match(text)
+}
+
+fn keyboard_sensitive(key: &str, desc: &Value) -> Option<String> {
+    let key = key.rsplit('+').next().unwrap_or("").trim().to_ascii_lowercase();
+    match key.as_str() {
+        "enter" | "return" => {
+            is_sensitive(desc).or_else(|| is_sensitive(&json!({
+                "text": desc.get("formText").and_then(Value::as_str).unwrap_or(""),
+                "href": desc.get("formAction").and_then(Value::as_str).unwrap_or("")
+            })))
+        }
+        "space" | "" if desc.get("tag").and_then(Value::as_str) == Some("button")
+            || desc.get("role").and_then(Value::as_str) == Some("button")
+            || matches!(desc.get("type").and_then(Value::as_str), Some("submit" | "button")) => is_sensitive(desc),
+        _ => None,
+    }
 }
 
 fn host_allowed(host: &str, allowed: &[String]) -> bool {
@@ -662,6 +680,24 @@ impl<'a> Ctx<'a> {
         let r = self.ask(what, "confirm", Some(json!({ "host": host }))).await?;
         let r = r.trim().to_ascii_lowercase();
         Ok(matches!(r.as_str(), "yes" | "y" | "ok" | "approve" | "allow" | "go" | "confirm"))
+    }
+
+    async fn approve_keyboard_action(&self, b: &Browser, what: &str) -> Result<(), String> {
+        let host = b.current_host().await;
+        if is_money(what) && self.req.purchase_cap > 0.0 {
+            if let Some(total) = page_total(&b.page_text().await?) {
+                if total > self.req.purchase_cap {
+                    return Err(format!("Not submitting: the page total ({total:.2}) is above the owner's purchase cap ({:.2}).", self.req.purchase_cap));
+                }
+            }
+        }
+        if !self.confirm(&host, &format!("About to activate \"{what}\" with the keyboard on {host}. Allow?")).await? {
+            return Err("The owner declined that action.".into());
+        }
+        if self.cancelled() || b.current_host().await != host {
+            return Err("Cancelled or the page changed while waiting for approval. Read the page again.".into());
+        }
+        Ok(())
     }
 
     async fn ensure_site(&self, b: &Browser) -> Result<(), String> {
@@ -828,8 +864,21 @@ impl<'a> Ctx<'a> {
                         Err(e) => ToolOut::err(e),
                     },
                     "press_key" => {
-                        emit(self.app, &self.req.id, "tool", format!("press {}", s("key")), None);
-                        match b.press(&s("key")).await {
+                        let key = s("key");
+                        let desc = match b.focused_element().await {
+                            Ok(desc) => desc,
+                            Err(e) => return ToolOut::err(e),
+                        };
+                        if let Some(what) = keyboard_sensitive(&key, &desc) {
+                            if let Err(e) = self.approve_keyboard_action(b, &what).await {
+                                return ToolOut::err(e);
+                            }
+                            if b.focused_element().await.ok().as_ref() != Some(&desc) {
+                                return ToolOut::err("The focused element changed while waiting for approval. Read the page again.");
+                            }
+                        }
+                        emit(self.app, &self.req.id, "tool", format!("press {key}"), None);
+                        match b.press(&key).await {
                             Ok(()) => ToolOut::ok("pressed"),
                             Err(e) => ToolOut::err(e),
                         }
@@ -873,6 +922,9 @@ impl<'a> Ctx<'a> {
                             }
                             let g = self.tasks.browser.lock().await;
                             let Some(b) = g.as_ref() else { return ToolOut::err("Browser closed.") };
+                            if self.cancelled() || b.current_host().await != host || b.describe(r).await.ok().as_ref() != Some(&desc) {
+                                return ToolOut::err("Cancelled or the element changed while waiting for approval. Read the page again.");
+                            }
                             return self.finish_click(b, r, &label).await;
                         }
                         self.finish_click(b, r, &label).await
@@ -887,6 +939,16 @@ impl<'a> Ctx<'a> {
                         };
                         if is_secret_field(&desc) {
                             return ToolOut::err("That looks like a password, card or code field. I won't type secrets. Use ask_user to have the owner fill it in the browser window, then continue.");
+                        }
+                        if submit {
+                            if let Some(what) = keyboard_sensitive("Enter", &desc) {
+                                if let Err(e) = self.approve_keyboard_action(b, &what).await {
+                                    return ToolOut::err(e);
+                                }
+                                if b.describe(r).await.ok().as_ref() != Some(&desc) {
+                                    return ToolOut::err("The element changed while waiting for approval. Read the page again.");
+                                }
+                            }
                         }
                         emit(self.app, &self.req.id, "tool", format!("type \"{}\" into [{r}]", text.chars().take(40).collect::<String>()), None);
                         match b.type_text(r, &text, submit).await {
@@ -949,10 +1011,9 @@ impl<'a> Ctx<'a> {
 
     async fn finish_click(&self, b: &Browser, r: u32, label: &str) -> ToolOut {
         emit(self.app, &self.req.id, "tool", format!("click [{r}] \"{}\"", label.chars().take(40).collect::<String>()), None);
-        let mut res = b.click(r).await;
-        if matches!(&res, Err(e) if e.contains("timeout")) {
-            res = b.click(r).await; // one retry on a slow page
-        }
+        // A timed-out response does not prove the click failed. Retrying can
+        // place an order or send a message twice.
+        let res = b.click(r).await;
         match res {
             Ok((x, y)) => {
                 self.act_at(b, x, y, "click").await;
@@ -1032,6 +1093,20 @@ impl<'a> Ctx<'a> {
 
 // --- task runner -----------------------------------------------------------------
 
+async fn until_cancelled<T>(cancel: &AtomicBool, future: impl std::future::Future<Output = Result<T, String>>) -> Result<T, String> {
+    tokio::select! {
+        biased;
+        _ = async {
+            while !cancel.load(Ordering::Relaxed) {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        } => Err("Cancelled.".into()),
+        result = future => {
+            if cancel.load(Ordering::Relaxed) { Err("Cancelled.".into()) } else { result }
+        }
+    }
+}
+
 pub async fn run(app: AppHandle, tasks: Arc<Tasks>, req: RunRequest) {
     let id = req.id.clone();
     let cancel = Arc::new(AtomicBool::new(false));
@@ -1055,7 +1130,7 @@ pub async fn run(app: AppHandle, tasks: Arc<Tasks>, req: RunRequest) {
         wire: p.map(|p| p.wire).unwrap_or(Wire::OpenAi),
         base: p.map(|p| base_url(p, &req.base_url)).unwrap_or_default(),
     };
-    let result = run_inner(&mut ctx).await;
+    let result = until_cancelled(&cancel, run_inner(&mut ctx)).await;
     let spent = ctx.spent_usd;
     tasks.cancel.lock().unwrap().remove(&id);
     tasks.paused.lock().unwrap().remove(&id);
@@ -1728,6 +1803,38 @@ mod tests {
     fn url_codec_round_trips() {
         assert_eq!(urlencode("a b&c"), "a+b%26c");
         assert_eq!(urldecode("https%3A%2F%2Fx.y%2Fp%3Fq%3D1"), "https://x.y/p?q=1");
+        assert_eq!(urldecode("%₹/%a₹/%zz/%"), "%₹/%a₹/%zz/%");
+        assert_eq!(urldecode(&urlencode("₹ café 🐾")), "₹ café 🐾");
+    }
+
+    #[test]
+    fn keyboard_submission_uses_the_click_policy_without_gating_search_or_typing() {
+        let payment = json!({ "tag": "input", "type": "text", "text": "Name", "formText": "Place your order", "formAction": "https://shop.example/checkout" });
+        assert!(keyboard_sensitive("Enter", &payment).is_some());
+        assert!(keyboard_sensitive("Ctrl+Enter", &payment).is_some());
+        assert!(keyboard_sensitive("Tab", &payment).is_none());
+        assert!(keyboard_sensitive("Space", &payment).is_none());
+        let search = json!({ "tag": "input", "type": "search", "text": "Search", "formText": "Search", "formAction": "https://example.com/search" });
+        assert!(keyboard_sensitive("Enter", &search).is_none());
+        let send = json!({ "tag": "button", "text": "Send" });
+        assert!(keyboard_sensitive("Space", &send).is_some());
+        assert!(keyboard_sensitive("Enter", &send).is_some());
+        assert!(is_secret_field(&json!({ "type": "text", "text": "", "secret": true })));
+        assert!(is_money(&is_sensitive(&json!({ "text": "Next", "href": "https://shop.example/checkout" })).unwrap()));
+    }
+
+    #[tokio::test]
+    async fn cancellation_interrupts_a_pending_request_and_cannot_report_success() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let signal = cancel.clone();
+        let trigger = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+            signal.store(true, Ordering::Relaxed);
+        });
+        let result = tokio::time::timeout(Duration::from_secs(2), until_cancelled(&cancel, std::future::pending::<Result<(), String>>())).await;
+        trigger.await.unwrap();
+        assert_eq!(result.unwrap(), Err("Cancelled.".to_string()));
+        assert_eq!(until_cancelled(&cancel, async { Ok("late answer") }).await, Err("Cancelled.".to_string()));
     }
 
     #[test]

@@ -251,7 +251,7 @@ pub mod extras {
         if resp.status().as_u16() == 404 {
             return Ok(UpdateInfo { current: current.clone(), latest: current, available: false, url: String::new(), notes: "No releases published yet.".into() });
         }
-        let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+        let v: serde_json::Value = resp.error_for_status().map_err(|e| e.to_string())?.json().await.map_err(|e| e.to_string())?;
         let latest = v.get("tag_name").and_then(|t| t.as_str()).unwrap_or("").to_string();
         let url = v
             .get("assets")
@@ -272,11 +272,11 @@ pub mod extras {
     /// is left to the user on these platforms.
     pub async fn download_update(url: &str) -> Result<std::path::PathBuf, String> {
         // Only our own release assets; GitHub redirects these to its CDN itself.
-    if !url.starts_with(RELEASE_DOWNLOADS) || url.contains("..") || url.to_ascii_lowercase().contains("%2e") {
+        if !url.starts_with(RELEASE_DOWNLOADS) || url.contains("..") || url.to_ascii_lowercase().contains("%2e") {
             return Err("Refusing to download an update from outside GitHub.".into());
         }
         let client = reqwest::Client::builder().user_agent("PocketPet").build().map_err(|e| e.to_string())?;
-        let bytes = client.get(url).send().await.map_err(|e| e.to_string())?.bytes().await.map_err(|e| e.to_string())?;
+        let bytes = client.get(url).send().await.map_err(|e| e.to_string())?.error_for_status().map_err(|e| e.to_string())?.bytes().await.map_err(|e| e.to_string())?;
         if bytes.len() < 100_000 {
             return Err("Downloaded file is too small to be the update.".into());
         }
@@ -333,7 +333,8 @@ pub mod startup {
     pub fn parse_combo(text: &str) -> Option<Combo> {
         let mut mods: Vec<&str> = Vec::new();
         let mut key: Option<String> = None;
-        for part in text.split('+').map(|p| p.trim()).filter(|p| !p.is_empty()) {
+        for part in text.split('+').map(|p| p.trim()) {
+            if part.is_empty() { return None; }
             let lower = part.to_ascii_lowercase();
             match lower.as_str() {
                 "ctrl" | "control" => mods.push("ctrl"),
@@ -391,24 +392,32 @@ pub mod startup {
         }
     }
 
-    fn apply(bindings: Vec<(HotkeyAction, Combo)>) {
-        let Some(app) = APP.get() else { return };
+    fn apply(bindings: Vec<(HotkeyAction, Combo)>) -> Vec<HotkeyAction> {
+        let Some(app) = APP.get() else {
+            return bindings.into_iter().map(|(action, _)| action).collect();
+        };
         let gs = app.global_shortcut();
-        let _ = gs.unregister_all();
+        if gs.unregister_all().is_err() {
+            return bindings.into_iter().map(|(action, _)| action).collect();
+        }
         let mut bound = Vec::new();
+        let mut failed = Vec::new();
         for (action, Combo(shortcut)) in bindings {
             if gs.register(shortcut).is_ok() {
                 bound.push((action, shortcut));
+            } else {
+                failed.push(action);
             }
         }
         if let Ok(mut b) = BOUND.lock() {
             *b = bound;
         }
+        failed
     }
 
     /// Replace the whole binding set.
-    pub fn set_hotkeys(bindings: Vec<(HotkeyAction, Combo)>) {
-        apply(bindings);
+    pub fn set_hotkeys(bindings: Vec<(HotkeyAction, Combo)>) -> Vec<HotkeyAction> {
+        apply(bindings)
     }
 
     /// No thread needed here: the plugin delivers presses on its own. Keeps
@@ -432,6 +441,9 @@ pub mod startup {
             assert_eq!(parse_combo("Ctrl+"), None);
             assert_eq!(parse_combo(""), None);
             assert_eq!(parse_combo("Ctrl+A+B"), None);
+            for text in ["Ctrl+invalid+P", "Ctrl+P+invalid", "Ctrl++P", "+Ctrl+P", "Ctrl+P+", "Ctrl+F25"] {
+                assert_eq!(parse_combo(text), None, "accepted malformed shortcut {text}");
+            }
         }
     }
 }

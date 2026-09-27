@@ -8,7 +8,8 @@
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Mutex;
+use std::sync::{mpsc, Mutex};
+use std::time::Duration;
 
 use tauri::AppHandle;
 use windows::core::HSTRING;
@@ -22,7 +23,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     MOD_SHIFT, MOD_WIN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetMessageW, PostThreadMessageW, MSG, WM_APP, WM_HOTKEY,
+    GetMessageW, PeekMessageW, PostThreadMessageW, MSG, PM_NOREMOVE, WM_APP, WM_HOTKEY,
 };
 
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -79,13 +80,15 @@ pub struct Combo {
 pub fn parse_combo(text: &str) -> Option<Combo> {
     let mut mods = 0u32;
     let mut vk = None;
-    for part in text.split('+').map(|p| p.trim()).filter(|p| !p.is_empty()) {
+    for part in text.split('+').map(|p| p.trim()) {
+        if part.is_empty() { return None; }
         match part.to_ascii_lowercase().as_str() {
             "ctrl" | "control" => mods |= MOD_CONTROL.0,
             "alt" => mods |= MOD_ALT.0,
             "shift" => mods |= MOD_SHIFT.0,
             "win" | "super" | "meta" => mods |= MOD_WIN.0,
             key => {
+                if vk.is_some() { return None; }
                 let code = match key {
                     k if k.len() == 1 && k.as_bytes()[0].is_ascii_alphanumeric() => {
                         Some(k.to_ascii_uppercase().as_bytes()[0] as u32)
@@ -109,7 +112,7 @@ pub fn parse_combo(text: &str) -> Option<Combo> {
                     "right" => Some(0x27),
                     _ => None,
                 };
-                vk = code;
+                vk = Some(code?);
             }
         }
     }
@@ -119,33 +122,42 @@ pub fn parse_combo(text: &str) -> Option<Combo> {
     }
 }
 
-/// Desired bindings, written by `set_hotkeys`, read by the hotkey thread.
-static WANTED: Mutex<Vec<(HotkeyAction, Combo)>> = Mutex::new(Vec::new());
+struct BindingRequest {
+    bindings: Vec<(HotkeyAction, Combo)>,
+    reply: mpsc::Sender<Vec<HotkeyAction>>,
+}
+
+/// Each caller receives the result of its own registration attempt.
+static REQUESTS: Mutex<Vec<BindingRequest>> = Mutex::new(Vec::new());
 /// Win32 thread id of the hotkey thread, so we can poke it.
 static THREAD_ID: AtomicU32 = AtomicU32::new(0);
 const WM_REBIND: u32 = WM_APP + 1;
 
 /// Replace the whole binding set. Returns the actions that could not be
 /// registered (typically because another app owns that combination).
-pub fn set_hotkeys(bindings: Vec<(HotkeyAction, Combo)>) {
-    if let Ok(mut w) = WANTED.lock() {
-        *w = bindings;
-    }
-    let tid = THREAD_ID.load(Ordering::Relaxed);
+pub fn set_hotkeys(bindings: Vec<(HotkeyAction, Combo)>) -> Vec<HotkeyAction> {
+    let unavailable: Vec<_> = bindings.iter().map(|(action, _)| *action).collect();
+    let (reply, result) = mpsc::channel();
+    let Ok(mut requests) = REQUESTS.lock() else { return unavailable };
+    requests.push(BindingRequest { bindings, reply });
+    drop(requests);
+    let tid = THREAD_ID.load(Ordering::Acquire);
     if tid != 0 {
         unsafe {
-            let _ = PostThreadMessageW(tid, WM_REBIND, WPARAM(0), LPARAM(0));
+            if PostThreadMessageW(tid, WM_REBIND, WPARAM(0), LPARAM(0)).is_err() {
+                return unavailable;
+            }
         }
     }
+    result.recv_timeout(Duration::from_secs(3)).unwrap_or(unavailable)
 }
 
-fn apply_bindings(registered: &mut Vec<i32>) -> Vec<HotkeyAction> {
+fn apply_bindings(registered: &mut Vec<i32>, wanted: Vec<(HotkeyAction, Combo)>) -> Vec<HotkeyAction> {
     unsafe {
         for id in registered.drain(..) {
             let _ = UnregisterHotKey(HWND::default(), id);
         }
     }
-    let wanted = WANTED.lock().map(|w| w.clone()).unwrap_or_default();
     let mut failed = Vec::new();
     for (action, combo) in wanted {
         let id = action as i32;
@@ -168,27 +180,35 @@ pub fn spawn_hotkey_thread(
     initial: Vec<(HotkeyAction, Combo)>,
     on_press: fn(&AppHandle, HotkeyAction),
 ) {
-    if let Ok(mut w) = WANTED.lock() {
-        *w = initial;
-    }
     std::thread::spawn(move || unsafe {
-        THREAD_ID.store(GetCurrentThreadId(), Ordering::Relaxed);
-        let mut registered = Vec::new();
-        apply_bindings(&mut registered);
+        // PostThreadMessage only works after this thread owns a message queue.
         let mut msg = MSG::default();
-        while GetMessageW(&mut msg, HWND::default(), 0, 0).as_bool() {
+        let _ = PeekMessageW(&mut msg, HWND::default(), 0, 0, PM_NOREMOVE);
+        let mut registered = Vec::new();
+        apply_bindings(&mut registered, initial);
+        THREAD_ID.store(GetCurrentThreadId(), Ordering::Release);
+        loop {
+            // Drain before waiting too: requests submitted during startup have
+            // no thread id to wake yet, but still need acknowledgement.
+            let requests = REQUESTS.lock()
+                .map(|mut pending| std::mem::take(&mut *pending)).unwrap_or_default();
+            for request in requests {
+                let failed = apply_bindings(&mut registered, request.bindings);
+                let _ = request.reply.send(failed);
+            }
+            if GetMessageW(&mut msg, HWND::default(), 0, 0).0 <= 0 { break; }
             match msg.message {
                 WM_HOTKEY => {
                     if let Some(action) = HotkeyAction::from_id(msg.wParam.0 as i32) {
                         on_press(&app, action);
                     }
                 }
-                WM_REBIND => {
-                    apply_bindings(&mut registered);
-                }
+                WM_REBIND => {}
                 _ => {}
             }
         }
+        THREAD_ID.store(0, Ordering::Release);
+        for id in registered { let _ = UnregisterHotKey(HWND::default(), id); }
     });
 }
 
@@ -204,5 +224,12 @@ mod tests {
         assert_eq!(parse_combo("P"), None, "no modifier: would eat typing");
         assert_eq!(parse_combo("Ctrl+"), None);
         assert_eq!(parse_combo(""), None);
+    }
+
+    #[test]
+    fn rejects_unknown_multiple_and_missing_keys() {
+        for text in ["Ctrl+A+B", "Ctrl+invalid+P", "Ctrl+P+invalid", "Ctrl++P", "+Ctrl+P", "Ctrl+P+", "Ctrl+F25"] {
+            assert_eq!(parse_combo(text), None, "accepted malformed shortcut {text}");
+        }
     }
 }

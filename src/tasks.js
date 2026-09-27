@@ -824,22 +824,32 @@ $("mic").addEventListener("pointerdown", () => (whisperMode() ? startRecording()
 $("mic").addEventListener("pointerup", () => whisperMode() && stopRecording());
 $("mic").addEventListener("pointerleave", () => whisperMode() && stopRecording());
 
-// Hotkeys from Rust: voice (toggle) and clipboard.
-listen("pet://voice", () => {
-  showTab("run");
-  if (whisperMode()) {
-    if (recorder) stopRecording();
-    else startRecording();
-  } else listenWindows();
-});
-listen("pet://clip", ({ payload }) => {
-  showTab("run");
-  const text = (payload?.text ?? "").trim();
-  $("task").value = text ? `Do this with the text below:\n\n${text.slice(0, 2000)}` : "";
-  autosize();
-  $("task").focus();
-  $("task").setSelectionRange(0, 0);
-});
+// Rust retains hotkey actions until this webview consumes them. Register the
+// wake-up listener before the startup drain, and serialize overlapping drains.
+let taskIntentsReady = false;
+let taskIntentDrain = Promise.resolve();
+function drainTaskIntents() {
+  if (!taskIntentsReady) return Promise.resolve();
+  taskIntentDrain = taskIntentDrain.then(async () => {
+    const intents = await invoke("consume_task_intents");
+    for (const intent of intents) {
+      if (intent.kind === "voice") {
+        companionVoice();
+      } else if (intent.kind === "clip") {
+        showComposer();
+        const text = (intent.text ?? "").trim();
+        $("task").value = text ? `Do this with the text below:\n\n${text.slice(0, 2000)}` : "";
+        autosize();
+        $("task").focus();
+        $("task").setSelectionRange(0, 0);
+      }
+    }
+  }).catch((error) => {
+    $("status").textContent = `Could not apply task shortcut: ${error.message ?? error}`;
+  });
+  return taskIntentDrain;
+}
+const taskIntentListener = listen("pet://task-intents", drainTaskIntents);
 
 // --- history -------------------------------------------------------------------------
 
@@ -1023,5 +1033,11 @@ listen("pet://compose", consumeComposeRequest);
 window.addEventListener("focus", consumeComposeRequest);
 listen("pet://settings", () => { settings = readSettings(); paintCompanion(); });
 paintCompanion();
-loadProviders().then(consumeComposeRequest);
+Promise.all([loadProviders(), taskIntentListener]).then(() => {
+  consumeComposeRequest();
+  taskIntentsReady = true;
+  return drainTaskIntents();
+}).catch((error) => {
+  $("status").textContent = `Could not initialize task shortcuts: ${error.message ?? error}`;
+});
 paintSpend();

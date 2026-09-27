@@ -214,7 +214,7 @@ pub async fn check_update() -> Result<UpdateInfo, String> {
     if resp.status().as_u16() == 404 {
         return Ok(UpdateInfo { current: current.clone(), latest: current, available: false, url: String::new(), notes: "No releases published yet.".into() });
     }
-    let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let v: serde_json::Value = resp.error_for_status().map_err(|e| e.to_string())?.json().await.map_err(|e| e.to_string())?;
     let latest = v.get("tag_name").and_then(|t| t.as_str()).unwrap_or("").to_string();
     let url = v
         .get("assets")
@@ -238,7 +238,7 @@ pub async fn download_update(url: &str) -> Result<std::path::PathBuf, String> {
         return Err("Refusing to download an installer from outside GitHub.".into());
     }
     let client = reqwest::Client::builder().user_agent("PocketPet").build().map_err(|e| e.to_string())?;
-    let bytes = client.get(url).send().await.map_err(|e| e.to_string())?.bytes().await.map_err(|e| e.to_string())?;
+    let bytes = client.get(url).send().await.map_err(|e| e.to_string())?.error_for_status().map_err(|e| e.to_string())?.bytes().await.map_err(|e| e.to_string())?;
     if bytes.len() < 100_000 {
         return Err("Downloaded file is too small to be the installer.".into());
     }
