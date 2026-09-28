@@ -535,6 +535,14 @@ fn is_sensitive(desc: &Value) -> Option<String> {
     if re.is_match(text) || re.is_match(href) || is_sensitive_url(href) {
         return Some(format!("{text} {href}").trim().to_string());
     }
+    // A generically labelled submit button (for example "Continue") can
+    // commit the form just as Enter in an input does.
+    if desc.get("type").and_then(Value::as_str) == Some("submit") {
+        return is_sensitive(&json!({
+            "text": desc.get("formText").and_then(Value::as_str).unwrap_or(""),
+            "href": desc.get("formAction").and_then(Value::as_str).unwrap_or("")
+        }));
+    }
     None
 }
 
@@ -1819,6 +1827,9 @@ mod tests {
         let send = json!({ "tag": "button", "text": "Send" });
         assert!(keyboard_sensitive("Space", &send).is_some());
         assert!(keyboard_sensitive("Enter", &send).is_some());
+        let checkout = json!({ "tag": "button", "type": "submit", "text": "Continue", "formAction": "https://shop.example/checkout" });
+        assert!(keyboard_sensitive("Space", &checkout).is_some());
+        assert!(is_sensitive(&checkout).is_some(), "clicking the same submit button needs the same approval");
         assert!(is_secret_field(&json!({ "type": "text", "text": "", "secret": true })));
         assert!(is_money(&is_sensitive(&json!({ "text": "Next", "href": "https://shop.example/checkout" })).unwrap()));
     }
