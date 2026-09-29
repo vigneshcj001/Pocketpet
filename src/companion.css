@@ -1,13 +1,16 @@
 /* Transparent overlay: only controls and the task pill paint a background. */
-.companion { position: absolute; top: 0; left: 0; width: min(390px, calc(100vw - 16px)); z-index: 15; pointer-events: none; color: #252729; font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
-.companion[hidden], .companion-task[hidden] { display: none; }
-.companion-controls { display: flex; align-items: center; justify-content: center; width: max-content; margin: 0 auto 12px; padding: 3px; border-radius: 12px; background: rgba(255,255,255,.96); pointer-events: auto; box-shadow: 0 2px 8px #0000000d; }
+.companion { position: absolute; top: 0; left: 0; width: 32px; height: 32px; z-index: 15; pointer-events: none; color: #252729; font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+.companion[hidden], .companion-panel[hidden], .companion-task[hidden] { display: none; }
+.companion-launcher { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,.96); color: inherit; box-shadow: 0 2px 8px #0000000d; cursor: pointer; pointer-events: auto; }
+.companion-launcher:hover, .companion-launcher[aria-expanded="true"] { background: #f0f2f3; }
+.companion-panel { position: absolute; width: min(390px, calc(100vw - 16px)); }
+.companion-controls { display: flex; align-items: center; justify-content: center; width: max-content; margin: 0 auto; padding: 3px; border-radius: 12px; background: rgba(255,255,255,.96); pointer-events: auto; box-shadow: 0 2px 8px #0000000d; }
 .companion-controls button { display: grid; place-items: center; border: 0; background: transparent; color: inherit; width: 40px; height: 34px; padding: 7px; cursor: pointer; border-radius: 7px; }
 .companion-controls button + button { border-left: 1px solid #eee; }
 .companion-controls button:hover { background: #f0f2f3; }
 .companion-controls .collapsed svg { transform: rotate(180deg); }
 .companion button:focus-visible { outline: 2px solid #138ac3; outline-offset: 2px; }
-.companion-task { display: flex; flex-direction: column; gap: 1px; width: 100%; padding: 15px 22px; border: 0; border-radius: 32px; background: #fff; color: #777; text-align: left; box-shadow: 0 5px 24px #00000026; font: inherit; pointer-events: auto; cursor: pointer; }
+.companion-task { display: flex; flex-direction: column; gap: 1px; width: 100%; margin-top: 12px; padding: 15px 22px; border: 0; border-radius: 32px; background: #fff; color: #777; text-align: left; box-shadow: 0 5px 24px #00000026; font: inherit; pointer-events: auto; cursor: pointer; }
 .companion-task strong { color: #252729; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .companion-task span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .companion-task[data-phase="completed"] strong::before { content: "✓"; display: inline-grid; place-items: center; width: 17px; height: 17px; margin-right: 7px; border-radius: 50%; background: #00a346; color: white; font-size: 12px; }
@@ -35,10 +38,10 @@ body.tasks-companion { --bg: #fff; --card: #fff; --ink: #252729; --muted: #777b8
 @media (prefers-color-scheme: dark) {
   body.tasks-companion { --bg: #202126; --card: #27282e; --ink: #f3f3f4; --muted: #b0b1b7; --line: #3a3b42; }
   .companion { color: #f3f3f4; }
-  .companion-controls, .companion-task { background: #27282e; color: #b0b1b7; }
+  .companion-launcher, .companion-controls, .companion-task { background: #27282e; color: #b0b1b7; }
   .companion-task strong { color: #f3f3f4; }
   .companion-controls button + button { border-color: #3a3b42; }
-  .companion-controls button:hover { background: #3a3b42; }
+  .companion-launcher:hover, .companion-launcher[aria-expanded="true"], .companion-controls button:hover { background: #3a3b42; }
 }
 
 /* Shared task feedback for every built-in animal and custom-image pet. */

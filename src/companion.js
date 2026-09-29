@@ -23,9 +23,12 @@ export const icon = (name) => `<svg viewBox="0 0 24 24" width="20" height="20" f
 
 export function createCompanion({ invoke, listen, getPetElement, getQuiet, onError }) {
   const root = document.getElementById("companion");
+  const launcher = document.getElementById("companion-launcher");
+  const panel = document.getElementById("companion-panel");
   const controls = document.getElementById("companion-controls");
   const pill = document.getElementById("companion-task");
   let view = null;
+  let controlsOpen = false;
   let collapsed = false;
   let startingTimer = 0;
   const open = async (mode) => {
@@ -62,8 +65,23 @@ export function createCompanion({ invoke, listen, getPetElement, getQuiet, onErr
   toggle.setAttribute("aria-expanded", "true");
   toggle.setAttribute("aria-controls", "companion-task");
   pill.addEventListener("click", () => open());
+  launcher.addEventListener("click", () => {
+    controlsOpen = !controlsOpen;
+    paint();
+  });
+  root.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !controlsOpen) return;
+    controlsOpen = false;
+    paint();
+    launcher.focus();
+    event.stopPropagation();
+  });
   function paint() {
-    pill.hidden = !view || collapsed;
+    panel.hidden = !controlsOpen;
+    launcher.setAttribute("aria-expanded", String(controlsOpen));
+    launcher.title = controlsOpen ? "Hide companion controls" : "Show companion controls";
+    launcher.setAttribute("aria-label", launcher.title);
+    pill.hidden = !controlsOpen || !view || collapsed;
     if (!view) return;
     pill.dataset.phase = view.phase;
     document.getElementById("companion-title").textContent = view.title;
@@ -100,7 +118,18 @@ export function createCompanion({ invoke, listen, getPetElement, getQuiet, onErr
       const below = pet.bottom + 9;
       const top = below + height <= innerHeight - 8 ? below : Math.max(8, pet.top - height - 10);
       root.style.transform = `translate3d(${Math.round(left)}px, ${Math.round(top)}px, 0)`;
+      if (!panel.hidden) {
+        const panelWidth = panel.offsetWidth;
+        const panelHeight = panel.offsetHeight;
+        const panelLeft = Math.max(8, Math.min(innerWidth - panelWidth - 8, pet.left + pet.width / 2 - panelWidth / 2));
+        const panelBelow = top + height + 8;
+        const panelTop = panelBelow + panelHeight <= innerHeight - 8
+          ? panelBelow
+          : Math.max(8, Math.min(top, pet.top) - panelHeight - 8);
+        panel.style.left = `${Math.round(panelLeft - left)}px`;
+        panel.style.top = `${Math.round(panelTop - top)}px`;
+      }
     },
-    regions() { return root.hidden ? [] : [controls, ...(!pill.hidden ? [pill] : [])]; },
+    regions() { return root.hidden ? [] : [launcher, ...(!panel.hidden ? [controls, ...(!pill.hidden ? [pill] : [])] : [])]; },
   };
 }

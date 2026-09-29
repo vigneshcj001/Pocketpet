@@ -35,6 +35,14 @@ regression pass, not an exhaustive security audit.
 - JavaScript: 19 regression tests pass; all 21 JavaScript files parse.
 - Rust on Windows: 15 tests pass; one existing network search test is ignored.
 - App/config/lockfile versions match; Git diff whitespace validation passes.
+- Optimized Windows build and NSIS installer succeeded. Installed and restarted
+  the fresh package. Verified executable contents match the release build apart
+  from Tauri's expected `UNK` → `NSS` bundle marker.
+- Desktop smoke check: Settings opens, Droplet appears in the pet selector, and
+  Updates shows version 0.2.0 with the new build identity. Existing Cat selection
+  and settings were preserved.
+- Tasks opens through its global shortcut and renders the updated companion
+  controls and idle composer without starting a provider request.
 
 ## Limits
 
