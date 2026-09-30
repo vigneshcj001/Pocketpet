@@ -19,6 +19,7 @@ import {
 } from "./behavior.js";
 import { createGames, TOYS } from "./games.js";
 import { createCompanion } from "./companion.js";
+import { taskNarration } from "./narration.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -2017,6 +2018,15 @@ const companion = createCompanion({
 });
 
 let taskAnim = null;
+let lastTaskNarration = { id: null, text: "", at: 0 };
+
+function narrateTaskProgress(event) {
+  const text = taskNarration(event);
+  const at = Date.now();
+  if (lastTaskNarration.id === event.id && lastTaskNarration.text === text && at - lastTaskNarration.at < 5000) return;
+  lastTaskNarration = { id: event.id, text, at };
+  say(text, 2500);
+}
 
 let ringTimer = null;
 
@@ -2134,7 +2144,7 @@ async function maybeCheckUpdate() {
     settings.agent = { ...settings.agent, lastUpdateCheck: Date.now() };
     saveSettings();
     if (info.available) {
-      say(`Psst — PocketPet ${info.latest} is out. Settings › Backup › Check for updates.`, 8000);
+      say(`Psst — PocketPet ${info.latest} is out. Settings › About & updates › Check for updates.`, 8000);
     }
   } catch {
     /* offline */
@@ -2175,21 +2185,21 @@ listen("pet://task", ({ payload }) => {
   }
   if (kind === "start") {
     taskRunning = true;
-    if (narrate) say("On it! Let me look that up…", 3000);
+    if (narrate) say(taskNarration(payload), 3000);
     if (state.mode === "free") {
       state.antic = null;
       setAnim("look");
       taskAnim = setTimeout(() => setAnim("idle"), 1500);
     }
-  } else if (kind === "tool") {
-    if (narrate) say(text.length > 90 ? text.slice(0, 88) + "…" : text, 2500);
+  } else if (["tool", "note", "plan", "step", "result"].includes(kind)) {
+    if (narrate) narrateTaskProgress(payload);
   } else if (kind === "browser") {
     if (payload.detail?.pid) sitOnBrowser(payload.detail.pid);
     else state.perched = false;
   } else if (kind === "act") {
     if (payload.detail) pointAt(payload.detail.x, payload.detail.y, text);
   } else if (kind === "confirm" || kind === "ask") {
-    if (narrate) say(kind === "confirm" ? "Need your okay for this — see the Tasks window." : "Question for you in the Tasks window.", 5000);
+    if (narrate) say(taskNarration(payload), 5000);
     if (settings.agent?.speak) speakAloud(text);
     setAnim("look");
     playChirp();
@@ -2203,8 +2213,7 @@ listen("pet://task", ({ payload }) => {
       invoke("notify", { title: "PocketPet did your scheduled task", body: String(text).slice(0, 200) }).catch(() => {});
     }
     if (narrate) {
-      const first = String(text).split("\n").find((l) => l.trim()) ?? "";
-      say(`Done! ${first.length > 140 ? first.slice(0, 138) + "…" : first}\n(Full answer in the Tasks window.)`, 9000);
+      say(taskNarration(payload), 5000);
       setAnim("happy");
       playChirp();
       setTimeout(() => setAnim("idle"), 1300);
@@ -2213,7 +2222,7 @@ listen("pet://task", ({ payload }) => {
     taskRunning = false;
     clearTimeout(taskAnim);
     rememberTask(payload, "error");
-    if (narrate) say(`Hmm, that didn't work: ${String(text).slice(0, 120)}`, 6000);
+    if (narrate) say(taskNarration(payload), 5000);
   } else if (kind === "cancelled") {
     taskRunning = false;
     clearTimeout(taskAnim);

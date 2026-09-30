@@ -632,7 +632,7 @@ async fn check_update() -> Result<extras::UpdateInfo, String> {
 #[cfg(windows)]
 #[tauri::command]
 async fn install_update(url: String, app: AppHandle) -> Result<String, String> {
-    let path = extras::download_update(&url).await?;
+    let path = extras::download_update(&url, &app).await?;
     if !open_path(&path.display().to_string()) {
         return Err("Could not start the installer.".into());
     }
@@ -647,8 +647,7 @@ async fn install_update(url: String, app: AppHandle) -> Result<String, String> {
 #[cfg(not(windows))]
 #[tauri::command]
 async fn install_update(url: String, app: AppHandle) -> Result<String, String> {
-    let _ = app;
-    let path = extras::download_update(&url).await?;
+    let path = extras::download_update(&url, &app).await?;
     #[cfg(target_os = "linux")]
     let target = {
         use std::os::unix::fs::PermissionsExt;

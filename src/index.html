@@ -25,7 +25,9 @@
       <div id="companion" class="companion" hidden>
         <button type="button" id="companion-launcher" class="companion-launcher" title="Show companion controls" aria-label="Show companion controls" aria-expanded="false" aria-controls="companion-panel">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
+          <span id="companion-badge" class="companion-badge" aria-hidden="true" hidden></span>
         </button>
+        <span id="companion-status" class="companion-status" role="status" aria-live="polite" aria-atomic="true"></span>
         <div id="companion-panel" class="companion-panel" hidden>
           <div id="companion-controls" class="companion-controls" role="group" aria-label="Companion controls"></div>
           <button type="button" id="companion-task" class="companion-task" hidden title="Open task details">

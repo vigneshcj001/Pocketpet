@@ -230,21 +230,62 @@ pub async fn check_update() -> Result<UpdateInfo, String> {
     Ok(UpdateInfo { current, latest, available, url, notes })
 }
 
-/// Download the installer to %TEMP% and start it. The caller exits the app so
-/// the installer can replace the running exe.
-pub async fn download_update(url: &str) -> Result<std::path::PathBuf, String> {
+#[derive(Clone, serde::Serialize)]
+struct UpdateProgress {
+    downloaded: u64,
+    total: Option<u64>,
+    done: bool,
+}
+
+/// Stream the installer to %TEMP%, reporting actual bytes received. Only a
+/// completed download becomes an executable; the caller opens it and exits.
+pub async fn download_update(url: &str, app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    use std::io::Write;
+    use tauri::Emitter;
     // Only our own release assets; GitHub redirects these to its CDN itself.
-    if !url.starts_with(RELEASE_DOWNLOADS) || url.contains("..") || url.to_ascii_lowercase().contains("%2e") {
+    if !url.starts_with(RELEASE_DOWNLOADS) || url.contains("..") || url.to_ascii_lowercase().contains("%2e") || !url.ends_with("-setup.exe") {
         return Err("Refusing to download an installer from outside GitHub.".into());
     }
-    let client = reqwest::Client::builder().user_agent("PocketPet").build().map_err(|e| e.to_string())?;
-    let bytes = client.get(url).send().await.map_err(|e| e.to_string())?.error_for_status().map_err(|e| e.to_string())?.bytes().await.map_err(|e| e.to_string())?;
-    if bytes.len() < 100_000 {
-        return Err("Downloaded file is too small to be the installer.".into());
+    let client = reqwest::Client::builder().user_agent("PocketPet")
+        .connect_timeout(std::time::Duration::from_secs(20))
+        .timeout(std::time::Duration::from_secs(600))
+        .build().map_err(|e| e.to_string())?;
+    let mut response = client.get(url).send().await.map_err(|e| e.to_string())?
+        .error_for_status().map_err(|e| e.to_string())?;
+    let total = response.content_length();
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?.as_nanos();
+    let path = std::env::temp_dir().join(format!("PocketPet-update-{stamp}-setup.exe"));
+    let partial = path.with_extension("part");
+    let result = async {
+        let mut file = std::fs::File::create(&partial).map_err(|e| e.to_string())?;
+        let mut downloaded = 0_u64;
+        let mut reported = std::time::Instant::now();
+        let _ = app.emit("pet://update-progress", UpdateProgress { downloaded, total, done: false });
+        while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+            file.write_all(&chunk).map_err(|e| e.to_string())?;
+            downloaded += chunk.len() as u64;
+            if reported.elapsed() >= std::time::Duration::from_millis(100) {
+                let _ = app.emit("pet://update-progress", UpdateProgress { downloaded, total, done: false });
+                reported = std::time::Instant::now();
+            }
+        }
+        if downloaded < 100_000 {
+            return Err("Downloaded file is too small to be the installer.".to_string());
+        }
+        if total.is_some_and(|expected| downloaded != expected) {
+            return Err("The installer download was incomplete. Please try again.".to_string());
+        }
+        file.sync_all().map_err(|e| e.to_string())?;
+        drop(file);
+        std::fs::rename(&partial, &path).map_err(|e| e.to_string())?;
+        let _ = app.emit("pet://update-progress", UpdateProgress { downloaded, total, done: true });
+        Ok(path.clone())
+    }.await;
+    if result.is_err() {
+        let _ = std::fs::remove_file(&partial);
     }
-    let path = std::env::temp_dir().join("PocketPet-update-setup.exe");
-    std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
-    Ok(path)
+    result
 }
 
 #[cfg(test)]

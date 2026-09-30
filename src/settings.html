@@ -22,6 +22,7 @@
         <button role="tab" data-tab="controls">Controls</button>
         <button role="tab" data-tab="dashboard">Dashboard</button>
         <button role="tab" data-tab="backup">Backup</button>
+        <button role="tab" data-tab="about">About &amp; updates</button>
       </nav>
     </header>
 
@@ -30,7 +31,9 @@
       <section data-panel="general">
         <div class="card">
           <h2>Pet</h2>
-          <label>Active pet <select id="pet"></select></label>
+          <p id="petChoicesLabel" class="pet-choices-label">Active pet</p>
+          <select id="pet" hidden aria-hidden="true" tabindex="-1"></select>
+          <div id="petChoices" class="pet-choices" role="radiogroup" aria-labelledby="petChoicesLabel"></div>
           <label>Companion <select id="companion"></select></label>
           <label>Size
             <select id="size">
@@ -243,15 +246,28 @@
           </div>
           <p class="hint" id="backupStatus"></p>
         </div>
+        <div class="card danger">
+          <h2>Reset</h2>
+          <button type="button" id="resetAll">Reset all settings and progress</button>
+        </div>
+      </section>
+
+      <!-- ================= About & updates ================= -->
+      <section data-panel="about" hidden>
+        <div class="card">
+          <h2>About PocketPet</h2>
+          <p class="hint" id="buildIdentity">Loading installed build…</p>
+          <p class="hint" id="installedUpdateStatus" role="status" hidden></p>
+        </div>
         <div class="card">
           <h2>Updates</h2>
-          <p class="hint" id="buildIdentity">Loading installed build…</p>
           <div class="pair">
             <button type="button" id="checkUpdate">Check for updates</button>
             <button type="button" id="installUpdate" hidden class="primary">Download &amp; install</button>
           </div>
           <label class="row"><input type="checkbox" id="updateCheck" /> Check once a day and let the pet mention it</label>
-          <p class="hint" id="updateStatus"></p>
+          <progress id="updateProgress" class="update-progress" aria-label="Update download progress" hidden></progress>
+          <p class="hint" id="updateStatus" role="status"></p>
         </div>
         <div class="card">
           <h2>Problems</h2>
@@ -260,10 +276,6 @@
             <button type="button" id="copyDiag">Copy diagnostics</button>
           </div>
           <p class="hint" id="diagStatus">Diagnostics contain the version and build, which providers have keys (never the keys), and recent crash logs.</p>
-        </div>
-        <div class="card danger">
-          <h2>Reset</h2>
-          <button type="button" id="resetAll">Reset all settings and progress</button>
         </div>
       </section>
     </main>

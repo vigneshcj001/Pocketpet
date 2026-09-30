@@ -170,6 +170,6 @@ answer narrated + toast + history.
 
 ## 9. Updates
 
-Daily (or Settings › Backup › Check): `GET releases/latest` → compare tag with
+Daily (or Settings › About & updates › Check for updates): `GET releases/latest` → compare tag with
 `CARGO_PKG_VERSION` → pet mentions it → **Download & install** fetches the
 asset for this OS (`-setup.exe` / `.dmg` / `.AppImage`) to the temp folder, launches it, exits the app.

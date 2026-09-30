@@ -6,6 +6,6 @@ Logged kinds: task (the request), start, tool, result, note, plan, step, shot (l
 
 Approvals: the `confirm` line records the exact question ("About to click … on host …"); the reply is implied by the next action (a following `tool click` = allowed; an `error … declined` = denied). Candidate improvement: log the reply explicitly.
 
-Crash logs: `logs/panic-<ts>.log`. Diagnostics: Settings › Backup › Copy diagnostics.
+Crash logs: `logs/panic-<ts>.log`. Diagnostics: Settings › About & updates › Copy diagnostics.
 
 Retention: forever until the user deletes; no rotation in 0.1 (candidate: keep last 200 tasks).

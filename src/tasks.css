@@ -155,6 +155,13 @@ button.mini {
   padding: 4px 9px;
   text-align: left;
 }
+.provider-readiness { border-left: 4px solid var(--line); }
+.provider-readiness[data-state="ready"] { border-left-color: #2a9d8f; }
+.provider-readiness[data-state="missing"], .provider-readiness[data-state="error"] { border-left-color: var(--danger); }
+.provider-readiness strong { display: block; margin-bottom: 4px; }
+.provider-readiness p { margin: 0 0 9px; overflow-wrap: anywhere; }
+.provider-guide-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.provider-guide-actions button { padding: 5px 9px; font-size: 12px; }
 code {
   font-family: Consolas, "Cascadia Mono", monospace;
   font-size: 12px;

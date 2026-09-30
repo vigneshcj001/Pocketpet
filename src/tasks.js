@@ -14,7 +14,12 @@ const { listen, emit } = window.__TAURI__.event;
 const $ = (id) => document.getElementById(id);
 let settings = readSettings();
 let providers = [];
+let providerLoadError = false;
+let connectionSequence = 0;
+const connectionChecks = new Map();
 let current = null; // { id, task, provider, model, startedAt, paused, host }
+let lastTerminal = null;
+let terminalViewed = null;
 const queue = []; // tasks waiting while one runs
 let answeredOnce = false;
 
@@ -63,14 +68,26 @@ function showTab(name) {
   if (name === "memory") loadMemory();
   if (name === "limits") renderLimits();
   if (name === "schedules") renderSchedules();
+  if (name === "run") acknowledgeVisibleTask();
 }
+
+function acknowledgeVisibleTask() {
+  if (!lastTerminal || !document.hasFocus() || document.querySelector('[data-panel="run"]').hidden) return;
+  const key = `${lastTerminal.id}:${lastTerminal.phase}`;
+  if (terminalViewed === key) return;
+  terminalViewed = key;
+  emit("pet://task-viewed", lastTerminal).catch(() => {});
+}
+window.addEventListener("focus", acknowledgeVisibleTask);
 
 // --- providers & models ---------------------------------------------------------
 
 async function loadProviders() {
   try {
     providers = await invoke("agent_providers");
+    providerLoadError = false;
   } catch {
+    providerLoadError = true;
     providers = AGENT_PROVIDERS.map((id) => ({ id, needs_key: id !== "ollama" && id !== "custom", base_url: "", default_model: "", has_key: false }));
   }
   const sel = $("provider");
@@ -85,6 +102,87 @@ async function loadProviders() {
 
 function providerInfo(id = $("provider").value) {
   return providers.find((p) => p.id === id) ?? { id, needs_key: true, default_model: "", has_key: false };
+}
+
+function providerEndpoint(id) {
+  return settings.agent.baseUrls[id] ?? "";
+}
+
+function paintReadiness() {
+  const id = $("provider").value;
+  const card = $("providerReadiness");
+  const title = $("providerReadinessTitle");
+  const detail = $("providerReadinessText");
+  const check = connectionChecks.get(id);
+  const activeCheck = check?.endpoint === providerEndpoint(id) ? check : null;
+  const p = providerInfo(id);
+  const name = LABEL[id] ?? id;
+  let state = "unchecked";
+  let message = `${name} is configured. Test connection before starting your first task.`;
+  let heading = "Connection unchecked";
+  if (!id) {
+    heading = "Choose a provider";
+    message = "Pick a provider, set it up, then try an example task.";
+  } else if (activeCheck?.phase === "checking") {
+    heading = "Checking connection…";
+    message = `Contacting ${name} for available models.`;
+  } else if (activeCheck?.phase === "ready") {
+    state = "ready";
+    heading = "Ready";
+    message = `${name} responded with ${activeCheck.count} model${activeCheck.count === 1 ? "" : "s"}. Try an example or write your own task.`;
+  } else if (activeCheck?.phase === "empty") {
+    state = "error";
+    heading = "No models found";
+    message = `Connected to ${name}, but no models are available. Check its URL and model setup.`;
+  } else if (activeCheck?.phase === "error") {
+    state = "error";
+    heading = "Connection failed";
+    message = `Check ${name}'s key or URL under Providers & keys, then test again.`;
+  } else if (providerLoadError) {
+    state = "error";
+    heading = "Provider check failed";
+    message = "Couldn't read saved provider setup. Try testing the connection.";
+  } else if (p.needs_key && !p.has_key) {
+    state = "missing";
+    heading = "Key missing";
+    message = `Save an API key for ${name} under Providers & keys, then test it.`;
+  }
+  card.dataset.state = state;
+  title.textContent = heading;
+  detail.textContent = message;
+  $("setupProvider").textContent = p.needs_key && !p.has_key ? "2 Save & test key" : "2 Provider settings";
+  $("testProvider").hidden = !id || (p.needs_key && !p.has_key);
+  $("testProvider").disabled = activeCheck?.phase === "checking";
+  $("tryExample").disabled = state !== "ready";
+}
+
+async function testProviderConnection(id = $("provider").value) {
+  const endpoint = providerEndpoint(id);
+  const token = ++connectionSequence;
+  connectionChecks.set(id, { endpoint, phase: "checking", token });
+  paintReadiness();
+  try {
+    const ids = await invoke("agent_models", { provider: id, baseUrl: endpoint });
+    if (connectionChecks.get(id)?.token === token && providerEndpoint(id) === endpoint) {
+      connectionChecks.set(id, { endpoint, phase: ids.length ? "ready" : "empty", count: ids.length, token });
+      if ($("provider").value === id) {
+        const list = $("modelList");
+        list.replaceChildren(...ids.map((model) => new Option(model)));
+        if (!$("model").value.trim() && ids[0]) {
+          $("model").value = ids[0];
+          save({ agent: { models: { [id]: ids[0] } } });
+        }
+      }
+      paintReadiness();
+    }
+    return ids;
+  } catch (error) {
+    if (connectionChecks.get(id)?.token === token && providerEndpoint(id) === endpoint) {
+      connectionChecks.set(id, { endpoint, phase: "error", token });
+      paintReadiness();
+    }
+    throw error;
+  }
 }
 
 function onProviderChange(persist = true) {
@@ -103,16 +201,47 @@ function onProviderChange(persist = true) {
         : "OpenAI-compatible endpoint with PocketPet's search, page-reading and browser tools.";
   if (persist) save({ agent: { provider: id } });
   $("modelList").innerHTML = "";
+  paintReadiness();
 }
 
 $("provider").addEventListener("input", () => onProviderChange(true));
 $("model").addEventListener("change", () => save({ agent: { models: { [$("provider").value]: $("model").value.trim() } } }));
+$("chooseProvider").addEventListener("click", () => {
+  showTab("run");
+  $("task-composer").hidden = false;
+  $("companion-collapse").setAttribute("aria-expanded", "true");
+  $("task-provider-options").open = true;
+  $("provider").focus();
+});
+$("setupProvider").addEventListener("click", () => {
+  showTab("providers");
+  const id = $("provider").value;
+  const p = providerInfo(id);
+  const target = id === "ollama" || id === "custom"
+    ? $(`url_${id}`) : p.needs_key && !p.has_key
+      ? $("keys").querySelector(`[data-provider-id="${id}"] input[type="password"]`)
+      : $("keys").querySelector(`[data-provider-id="${id}"] button[data-action="test"]`);
+  target?.focus();
+});
+$("testProvider").addEventListener("click", async () => {
+  const id = $("provider").value;
+  try { await testProviderConnection(id); } catch { /* visible connection state gives next step */ }
+});
+$("tryExample").addEventListener("click", () => {
+  showTab("run");
+  $("task-composer").hidden = false;
+  $("companion-collapse").setAttribute("aria-expanded", "true");
+  $("task").value = EXAMPLES[4];
+  autosize();
+  $("task").focus();
+});
 
 $("refreshModels").addEventListener("click", async () => {
   const id = $("provider").value;
   $("status").textContent = "Fetching models…";
   try {
-    const ids = await invoke("agent_models", { provider: id, baseUrl: settings.agent.baseUrls[id] ?? "" });
+    const ids = await testProviderConnection(id);
+    if ($("provider").value !== id) return;
     const list = $("modelList");
     list.innerHTML = "";
     for (const m of ids) list.append(new Option(m));
@@ -130,6 +259,7 @@ function renderKeys() {
   list.innerHTML = "";
   for (const p of providers.filter((p) => p.needs_key)) {
     const li = document.createElement("li");
+    li.dataset.providerId = p.id;
     const name = document.createElement("span");
     name.className = "name";
     name.textContent = LABEL[p.id] ?? p.id;
@@ -152,6 +282,7 @@ function renderKeys() {
     const test = document.createElement("button");
     test.type = "button";
     test.textContent = "Test";
+    test.dataset.action = "test";
     test.title = "Ask the provider for its model list with the saved key";
     test.disabled = !p.has_key;
     const del = document.createElement("button");
@@ -166,7 +297,7 @@ function renderKeys() {
       state.textContent = "Testing…";
       test.disabled = true;
       try {
-        const ids = await invoke("agent_models", { provider: p.id, baseUrl: settings.agent.baseUrls[p.id] ?? "" });
+        const ids = await testProviderConnection(p.id);
         state.className = "state ok";
         state.textContent = `Key works — ${ids.length} model${ids.length === 1 ? "" : "s"} available.`;
       } catch (err) {
@@ -181,6 +312,7 @@ function renderKeys() {
       if (!key) return;
       try {
         await invoke("agent_set_key", { provider: p.id, key });
+        connectionChecks.delete(p.id);
         input.value = "";
         await loadProviders();
         renderKeys();
@@ -190,6 +322,7 @@ function renderKeys() {
     });
     del.addEventListener("click", async () => {
       await invoke("agent_delete_key", { provider: p.id }).catch(() => {});
+      connectionChecks.delete(p.id);
       await loadProviders();
       renderKeys();
     });
@@ -207,7 +340,11 @@ function renderKeys() {
 }
 
 for (const id of ["ollama", "custom"]) {
-  $(`url_${id}`).addEventListener("change", () => save({ agent: { baseUrls: { [id]: $(`url_${id}`).value.trim() } } }));
+  $(`url_${id}`).addEventListener("change", () => {
+    connectionChecks.delete(id);
+    save({ agent: { baseUrls: { [id]: $(`url_${id}`).value.trim() } } });
+    paintReadiness();
+  });
 }
 $("stream").addEventListener("input", () => save({ agent: { stream: $("stream").checked } }));
 $("digestModel").addEventListener("change", () => save({ agent: { digestModel: $("digestModel").value.trim() } }));
@@ -489,6 +626,8 @@ function renderQueue() {
 
 async function startTask(task, followUp = false) {
   if (!task || current) return;
+  lastTerminal = null;
+  terminalViewed = null;
   settings = readSettings();
   const cap = settings.agent.dailyCapUsd;
   const budget = cap > 0 ? Math.max(0, cap - spentToday()) : 0;
@@ -610,6 +749,9 @@ $("replyText").addEventListener("keydown", (e) => {
 function finish(status, text) {
   if (!current) return;
   const done = { ...current };
+  if (status === "done" || status === "error") {
+    lastTerminal = { id: done.id, phase: status === "done" ? "completed" : "error" };
+  }
   const took = mmss(Date.now() - done.startedAt);
   // Log while `current` is still set so the line gets a timestamp.
   logLine(status === "done" ? "answer" : status, status === "done" ? "Answer ready" : text);
@@ -629,6 +771,7 @@ function finish(status, text) {
     $("answerCard").scrollIntoView({ block: "nearest", behavior: "smooth" });
     if (settings.agent.speak) speak(text);
   }
+  acknowledgeVisibleTask();
   if (queue.length) {
     const next = queue.shift();
     renderQueue();
@@ -984,7 +1127,7 @@ function paintCompanion() {
   $("task-sprite").dataset.pet = pet.id;
   $("task-sprite").innerHTML = tintedSvg(pet, settings.colors[settings.pet]);
 }
-for (const [id, name] of [["companion-new", "compose"], ["companion-voice", "voice"], ["companion-collapse", "chevron"]]) $(id).innerHTML = icon(name);
+for (const [id, name] of [["companion-new", "compose"], ["companion-voice", "voice"], ["companion-collapse", "chevron"]]) $(id).insertAdjacentHTML("afterbegin", icon(name));
 function showComposer() {
   showTab("run");
   $("task-composer").hidden = false;

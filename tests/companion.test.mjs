@@ -18,6 +18,7 @@ test("task status follows real progress and never treats an approval as completi
   assert.equal(view.phase, "thinking");
   view = taskView(view, { id: "one", kind: "confirm" });
   assert.equal(view.phase, "waiting");
+  assert.equal(taskView(view, { id: "one", kind: "note" }).phase, "waiting");
   view = taskView(view, { id: "one", kind: "answer", text: "Ready" });
   assert.equal(view.phase, "completed");
   assert.equal(view.text, "Ready");

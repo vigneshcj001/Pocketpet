@@ -19,7 +19,7 @@ your OS. All builds are on the
 
 ## Blue droplet companion
 
-The blue pixel droplet is the default for new installations. Existing pet selections are preserved: choose **Droplet** from the tray's **Choose pet** menu or Settings. Compact chat and voice controls sit beside the pet, with a task-status pill driven by real agent events. Click the pill to open task details and approvals. Controls move above the pet when there is not enough space below it.
+The blue pixel droplet is the default for new installations. Existing pet selections are preserved: choose **Droplet** from the tray's **Choose pet** menu or the visual picker in Settings. Click the small **⋯** button beside the pet to reveal Chat, Voice, and Details. A badge marks tasks needing attention or results not yet viewed; controls stay closed until clicked. Click the task-status pill to open task details and approvals. Controls move above the pet when there is not enough space below it.
 
 The task window uses the same pet and colour, with starting, thinking and completed expressions. Voice uses the configured desktop voice engine; enable it under Providers & keys. Rebuild and restart the desktop app to use these changes.
 
@@ -232,7 +232,7 @@ Pushing source to `main` does not replace an installed app or publish a new
 download. Install the newly built installer and restart PocketPet. For public
 updates, commit matching versions in `Cargo.toml`, `Cargo.lock`, and
 `tauri.conf.json`, then push a new matching `v*` tag. See the
-[release steps](docs/08_DevOps/CI_CD.md). Settings → Backup → Updates shows the
+[release steps](docs/08_DevOps/CI_CD.md). Settings → About & updates shows the
 installed version and build so you can confirm which code is running.
 
 To start it with Windows, use **Run at startup** in the pet menu or tray menu.

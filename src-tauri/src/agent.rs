@@ -795,7 +795,7 @@ impl<'a> Ctx<'a> {
         match name {
             "web_search" => {
                 let q = s("query");
-                emit(self.app, &self.req.id, "tool", format!("search: {q}"), None);
+                emit(self.app, &self.req.id, "tool", format!("search: {q}"), Some(json!({ "tool": name })));
                 match web_search(&self.client, &q).await {
                     Ok(hits) => {
                         emit(self.app, &self.req.id, "result", format!("{} search results", hits.len()), None);
@@ -806,7 +806,7 @@ impl<'a> Ctx<'a> {
             }
             "fetch_page" => {
                 let u = s("url");
-                emit(self.app, &self.req.id, "tool", format!("read: {u}"), None);
+                emit(self.app, &self.req.id, "tool", format!("read: {u}"), Some(json!({ "tool": name })));
                 match fetch_page(&self.client, &u).await {
                     Ok(t) => {
                         emit(self.app, &self.req.id, "result", format!("page text ({} chars)", t.len()), None);
@@ -832,7 +832,7 @@ impl<'a> Ctx<'a> {
                         Err(e) => return ToolOut::err(e),
                     }
                 }
-                emit(self.app, &self.req.id, "tool", format!("open: {u}"), None);
+                emit(self.app, &self.req.id, "tool", format!("open: {u}"), Some(json!({ "tool": name })));
                 let g = match self.browser().await {
                     Ok(g) => g,
                     Err(e) => return ToolOut::err(e),
@@ -858,7 +858,7 @@ impl<'a> Ctx<'a> {
                         self.page_view(b).await
                     }
                     "screenshot" => {
-                        emit(self.app, &self.req.id, "tool", "screenshot", None);
+                        emit(self.app, &self.req.id, "tool", "screenshot", Some(json!({ "tool": name })));
                         match b.screenshot().await {
                             Ok(b64) => {
                                 emit(self.app, &self.req.id, "shot", "screenshot", Some(json!({ "jpeg": b64 })));
@@ -885,7 +885,7 @@ impl<'a> Ctx<'a> {
                                 return ToolOut::err("The focused element changed while waiting for approval. Read the page again.");
                             }
                         }
-                        emit(self.app, &self.req.id, "tool", format!("press {key}"), None);
+                        emit(self.app, &self.req.id, "tool", format!("press {key}"), Some(json!({ "tool": name })));
                         match b.press(&key).await {
                             Ok(()) => ToolOut::ok("pressed"),
                             Err(e) => ToolOut::err(e),
@@ -958,7 +958,7 @@ impl<'a> Ctx<'a> {
                                 }
                             }
                         }
-                        emit(self.app, &self.req.id, "tool", format!("type \"{}\" into [{r}]", text.chars().take(40).collect::<String>()), None);
+                        emit(self.app, &self.req.id, "tool", format!("type \"{}\" into [{r}]", text.chars().take(40).collect::<String>()), Some(json!({ "tool": name })));
                         match b.type_text(r, &text, submit).await {
                             Ok((x, y)) => {
                                 self.act_at(b, x, y, "type").await;
@@ -1018,7 +1018,7 @@ impl<'a> Ctx<'a> {
     }
 
     async fn finish_click(&self, b: &Browser, r: u32, label: &str) -> ToolOut {
-        emit(self.app, &self.req.id, "tool", format!("click [{r}] \"{}\"", label.chars().take(40).collect::<String>()), None);
+        emit(self.app, &self.req.id, "tool", format!("click [{r}] \"{}\"", label.chars().take(40).collect::<String>()), Some(json!({ "tool": "click" })));
         // A timed-out response does not prove the click failed. Retrying can
         // place an order or send a message twice.
         let res = b.click(r).await;
@@ -1374,7 +1374,7 @@ async fn run_anthropic(ctx: &mut Ctx<'_>, model: &str, prior: Vec<Value>) -> (Re
                     let name = block.get("name").and_then(Value::as_str).unwrap_or("tool");
                     let input = block.get("input").cloned().unwrap_or(Value::Null);
                     let what = input.get("query").or(input.get("url")).and_then(Value::as_str).unwrap_or("");
-                    emit(ctx.app, &req.id, "tool", format!("{name}: {what}"), None);
+                    emit(ctx.app, &req.id, "tool", format!("{name}: {what}"), Some(json!({ "tool": name })));
                 }
                 Some("web_search_tool_result") => {
                     let n = block.get("content").and_then(Value::as_array).map(|a| a.len()).unwrap_or(0);

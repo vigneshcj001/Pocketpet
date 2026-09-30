@@ -17,8 +17,9 @@ import {
 } from "./preferences.js";
 import { getPet } from "./pets/index.js";
 import { paintPetSprite, customImageSvg, renderAccessoryNodes } from "./appearance.js";
+import { updateConfirmation } from "./update-state.js";
 
-const { emit } = window.__TAURI__.event;
+const { emit, listen } = window.__TAURI__.event;
 const { invoke } = window.__TAURI__.core;
 
 const $ = (id) => document.getElementById(id);
@@ -64,6 +65,54 @@ function fillPetSelect(select, includeNone) {
   if (includeNone) select.add(new Option("None", ""));
   for (const p of allPets()) select.add(new Option(p.label, p.id));
   if ([...select.options].some((o) => o.value === current)) select.value = current;
+}
+
+function renderPetChoices() {
+  const list = $("petChoices");
+  const focusedId = list.contains(document.activeElement) ? document.activeElement.dataset.petId : null;
+  const pets = [...Object.values(PETS), ...settings.customPets];
+  list.replaceChildren();
+  for (const p of pets) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "pet-option";
+    button.dataset.petId = p.id;
+    button.setAttribute("role", "radio");
+    button.setAttribute("aria-checked", String(settings.pet === p.id));
+    button.tabIndex = settings.pet === p.id ? 0 : -1;
+    const art = document.createElement("span");
+    art.className = "sprite pet-option-art";
+    art.setAttribute("aria-hidden", "true");
+    paintPetSprite(art, spriteFor(p.id), settings.colors[p.id]);
+    const name = document.createElement("span");
+    name.className = "pet-option-name";
+    name.textContent = settings.petNames[p.id] || p.name;
+    const check = document.createElement("span");
+    check.className = "pet-option-check";
+    check.textContent = "✓";
+    check.hidden = settings.pet !== p.id;
+    check.setAttribute("aria-hidden", "true");
+    button.append(art, name, check);
+    const select = (id) => {
+      $("pet").value = id;
+      $("pet").dispatchEvent(new Event("input", { bubbles: true }));
+      [...list.children].find((node) => node.dataset.petId === id)?.focus();
+    };
+    button.addEventListener("click", () => select(p.id));
+    button.addEventListener("keydown", (event) => {
+      const index = pets.findIndex((entry) => entry.id === p.id);
+      let next;
+      if (["ArrowRight", "ArrowDown"].includes(event.key)) next = (index + 1) % pets.length;
+      else if (["ArrowLeft", "ArrowUp"].includes(event.key)) next = (index - 1 + pets.length) % pets.length;
+      else if (event.key === "Home") next = 0;
+      else if (event.key === "End") next = pets.length - 1;
+      else return;
+      event.preventDefault();
+      select(pets[next].id);
+    });
+    list.append(button);
+  }
+  if (focusedId) [...list.children].find((node) => node.dataset.petId === focusedId)?.focus();
 }
 
 // --- simple fields -------------------------------------------------------------
@@ -126,6 +175,7 @@ function fill() {
   fillPetSelect($("customisePet"), false);
   fillPetSelect($("dashPet"), false);
   for (const [id, prop] of Object.entries(FIELDS)) $(id)[prop] = settings[id];
+  renderPetChoices();
   const a = settings.avoidArea;
   $("avoidEnabled").checked = a.enabled;
   $("avoidX").value = a.x;
@@ -431,11 +481,13 @@ $("color").addEventListener("input", () => {
   save({ colors: { [id]: $("color").value } });
   $("colorHint").textContent = $("color").value;
   renderPreview(id);
+  renderPetChoices();
 });
 $("colorReset").addEventListener("click", () => {
   const id = $("customisePet").value;
   save({ colors: { [id]: "" } });
   renderPets();
+  renderPetChoices();
 });
 
 // custom image pets: pick → square-crop → shrink to 256 px → store
@@ -564,12 +616,62 @@ for (const key of Object.keys(DEFAULTS.shortcuts)) {
 
 // --- updates & diagnostics --------------------------------------------------------
 
-invoke("build_identity")
-  .then((identity) => { $("buildIdentity").textContent = identity; })
-  .catch(() => { $("buildIdentity").textContent = "Build information unavailable. Restart PocketPet after installing an update."; });
+const PENDING_INSTALL_KEY = "pocketpet:pending-update";
+const installedBuild = invoke("build_identity")
+  .then((identity) => {
+    $("buildIdentity").textContent = identity;
+    let pending;
+    try { pending = JSON.parse(localStorage.getItem(PENDING_INSTALL_KEY)); } catch { /* no valid saved attempt */ }
+    const result = updateConfirmation(pending, identity);
+    if (result) {
+      $("installedUpdateStatus").hidden = false;
+      $("installedUpdateStatus").textContent = result.installed
+        ? `Update confirmed: PocketPet ${result.current} is now running.`
+        : `Update to ${result.target} is not installed yet. This copy is still running ${result.current}.`;
+      if (result.installed) {
+        localStorage.removeItem(PENDING_INSTALL_KEY);
+        showTab("about");
+      }
+    }
+    return identity;
+  })
+  .catch(() => {
+    $("buildIdentity").textContent = "Build information unavailable. Restart PocketPet after installing an update.";
+    return null;
+  });
 
 let pendingUpdate = null;
+let updateBusy = false;
+let downloadingUpdate = false;
+function setUpdateBusy(busy) {
+  updateBusy = busy;
+  $("checkUpdate").disabled = busy;
+  $("installUpdate").disabled = busy;
+}
+const updateProgressReady = listen("pet://update-progress", ({ payload }) => {
+  if (!downloadingUpdate || !payload) return;
+  const downloaded = Math.max(0, Number(payload.downloaded) || 0);
+  const total = Math.max(0, Number(payload.total) || 0);
+  const progress = $("updateProgress");
+  progress.hidden = false;
+  if (payload.done || total > 0) {
+    progress.max = total || downloaded || 1;
+    progress.value = payload.done ? progress.max : Math.min(downloaded, total);
+  } else progress.removeAttribute("value");
+  const mb = (bytes) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  $("updateStatus").textContent = payload.done
+    ? "Download complete. Opening the installer… PocketPet will close."
+    : total > 0
+      ? `Downloading ${Math.floor(downloaded / total * 100)}% · ${mb(downloaded)} of ${mb(total)}`
+      : `Downloading… ${mb(downloaded)} received`;
+}).then(() => true).catch(() => false);
+
 $("checkUpdate").addEventListener("click", async () => {
+  if (updateBusy) return;
+  setUpdateBusy(true);
+  pendingUpdate = null;
+  $("installUpdate").hidden = true;
+  $("updateProgress").hidden = true;
   $("updateStatus").textContent = "Checking…";
   try {
     const info = await invoke("check_update");
@@ -581,17 +683,36 @@ $("checkUpdate").addEventListener("click", async () => {
     save({ agent: { lastUpdateCheck: Date.now() } });
   } catch (err) {
     $("updateStatus").textContent = `Couldn't check: ${err}`;
+  } finally {
+    setUpdateBusy(false);
   }
 });
 $("installUpdate").addEventListener("click", async () => {
-  if (!pendingUpdate) return;
-  $("updateStatus").textContent = "Downloading… PocketPet will close and the installer will open.";
+  if (!pendingUpdate || updateBusy) return;
+  setUpdateBusy(true);
+  downloadingUpdate = true;
+  $("updateProgress").hidden = false;
+  $("updateProgress").removeAttribute("value");
+  $("updateStatus").textContent = "Connecting to the update download…";
   try {
+    const identity = await installedBuild;
+    if (!identity) throw new Error("Couldn't identify this build. Restart PocketPet and try again.");
+    if (!await updateProgressReady) throw new Error("Couldn't prepare download progress. Reopen Settings and try again.");
+    localStorage.setItem(PENDING_INSTALL_KEY, JSON.stringify({ fromIdentity: identity, targetVersion: pendingUpdate.latest }));
     // Windows quits into the installer; macOS and Linux return where the download went.
     const message = await invoke("install_update", { url: pendingUpdate.url });
-    if (message) $("updateStatus").textContent = message;
+    if (message) {
+      $("updateStatus").textContent = message;
+      $("updateProgress").max = 1;
+      $("updateProgress").value = 1;
+    }
   } catch (err) {
+    localStorage.removeItem(PENDING_INSTALL_KEY);
+    $("updateProgress").hidden = true;
     $("updateStatus").textContent = `Update failed: ${err}`;
+  } finally {
+    downloadingUpdate = false;
+    setUpdateBusy(false);
   }
 });
 $("updateCheck").addEventListener("input", () => save({ agent: { updateCheck: $("updateCheck").checked } }));

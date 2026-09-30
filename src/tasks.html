@@ -35,13 +35,23 @@
       <section data-panel="run">
         <div id="task-mascot" class="task-mascot" data-state="idle" aria-hidden="true"><div id="task-sprite" class="sprite"></div></div>
         <div class="task-companion-controls" role="group" aria-label="Companion controls">
-          <button type="button" id="companion-new" aria-label="New chat" title="New chat"></button>
-          <button type="button" id="companion-voice" aria-label="Voice input" title="Voice input"></button>
-          <button type="button" id="companion-collapse" aria-label="Collapse composer" aria-expanded="true" aria-controls="task-composer" title="Collapse composer"></button>
+          <button type="button" id="companion-new" aria-label="New chat" title="New chat"><span>Chat</span></button>
+          <button type="button" id="companion-voice" aria-label="Voice input" title="Voice input"><span>Voice</span></button>
+          <button type="button" id="companion-collapse" aria-label="Collapse composer" aria-expanded="true" aria-controls="task-composer" title="Collapse composer"><span>Editor</span></button>
         </div>
         <div id="task-summary" class="task-summary" role="status" aria-live="polite" hidden><strong id="task-summary-title"></strong><span id="task-summary-text"></span></div>
+        <div id="providerReadiness" class="card provider-readiness" data-state="unchecked">
+          <strong id="providerReadinessTitle">Checking provider…</strong>
+          <p id="providerReadinessText" class="hint" role="status" aria-live="polite">Checking saved provider setup.</p>
+          <div class="provider-guide-actions">
+            <button type="button" id="chooseProvider">1 Choose provider</button>
+            <button type="button" id="setupProvider">2 Set up &amp; test</button>
+            <button type="button" id="testProvider" hidden>Test connection</button>
+            <button type="button" id="tryExample" disabled>3 Try example</button>
+          </div>
+        </div>
         <div id="task-composer" class="card compose">
-          <details class="task-provider-options"><summary>Provider &amp; model</summary>
+          <details id="task-provider-options" class="task-provider-options"><summary>Provider &amp; model</summary>
           <div class="pair">
             <label>Provider <select id="provider"></select></label>
             <label>Model

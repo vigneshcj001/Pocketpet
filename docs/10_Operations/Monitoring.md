@@ -12,4 +12,4 @@ Local-only signals (no telemetry):
 | CI | `Build installers` workflow red on any OS | fix before tagging; `fail-fast: false` keeps the other packages |
 | Performance | Task Manager CPU/RSS | > 3 % idle → check low-power, window count |
 
-Diagnostics bundle: Settings › Backup › Copy diagnostics.
+Diagnostics bundle: Settings › About & updates › Copy diagnostics.
