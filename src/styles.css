@@ -618,3 +618,186 @@ body {
 .bubble {
   font-size: var(--speech-size, 14px);
 }
+
+/* ============================================================
+   Inline chat bar
+   The trigger (pen icon) sits below the pet's feet.
+   Clicking it opens the pill-shaped input bar in the same spot.
+   Both are positioned every frame via translate3d() in JS so
+   they follow the pet; position:absolute/top:0/left:0 is the
+   base; pointer-events:auto is required for the overlay.
+   ============================================================ */
+
+/* colour tokens – reuse what the bubble already uses */
+.chat-trigger,
+.chat-bar {
+  --cb-bg:      rgba(255, 255, 255, 0.97);
+  --cb-ink:     #2c2438;
+  --cb-muted:   rgba(44, 36, 56, 0.38);
+  --cb-border:  rgba(0, 0, 0, 0.10);
+  --cb-hover:   rgba(0, 0, 0, 0.07);
+  --cb-accent:  #e8963c;
+  --cb-shadow:  0 4px 18px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  .chat-trigger,
+  .chat-bar {
+    --cb-bg:      rgba(28, 24, 36, 0.97);
+    --cb-ink:     #f4f1ef;
+    --cb-muted:   rgba(244, 241, 239, 0.35);
+    --cb-border:  rgba(255, 255, 255, 0.13);
+    --cb-hover:   rgba(255, 255, 255, 0.10);
+    --cb-accent:  #e8963c;
+    --cb-shadow:  0 4px 18px rgba(0, 0, 0, 0.50), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  }
+}
+
+/* ---- pen / trigger button ---- */
+
+.chat-trigger {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1.5px solid var(--cb-border);
+  background: var(--cb-bg);
+  color: var(--cb-ink);
+  cursor: pointer;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--cb-shadow);
+  transition: transform 0.15s, box-shadow 0.15s;
+  will-change: transform;
+  z-index: 6;
+  /* start invisible; JS reveals it after boot */
+}
+
+.chat-trigger:hover {
+  transform: scale(1.12) translate3d(0, 0, 0); /* translate3d keeps it on GPU layer */
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.28), 0 0 0 1px var(--cb-border);
+}
+
+.chat-trigger:active {
+  transform: scale(0.96) translate3d(0, 0, 0);
+}
+
+/* keep the SVG inside crisp */
+.chat-trigger svg {
+  display: block;
+  flex: 0 0 auto;
+}
+
+/* ---- pill bar ---- */
+
+.chat-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px 4px 8px;
+  border-radius: 999px;
+  background: var(--cb-bg);
+  color: var(--cb-ink);
+  box-shadow: var(--cb-shadow);
+  pointer-events: auto;
+  min-width: 200px;
+  max-width: min(320px, calc(100vw - 28px));
+  z-index: 6;
+  will-change: transform;
+  animation: chat-bar-in 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes chat-bar-in {
+  from { opacity: 0; transform: scale(0.78) translate3d(0, 6px, 0); }
+  to   { opacity: 1; transform: scale(1)    translate3d(0, 0,  0); }
+}
+
+/* ---- text input ---- */
+
+.chat-input {
+  flex: 1 1 0;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--cb-ink);
+  font: 13px "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  padding: 3px 4px;
+  caret-color: var(--cb-accent);
+  /* text must be selectable and typeable even on the click-through overlay */
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.chat-input::placeholder {
+  color: var(--cb-muted);
+}
+
+/* ---- icon buttons (chevron + send) ---- */
+
+.chat-icon-btn {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--cb-border);
+  background: transparent;
+  color: var(--cb-ink);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s;
+  padding: 0;
+}
+
+.chat-icon-btn svg {
+  display: block;
+  pointer-events: none;
+}
+
+.chat-icon-btn:hover {
+  background: var(--cb-hover);
+}
+
+.chat-icon-btn:active {
+  opacity: 0.65;
+}
+
+/* send button: filled accent circle */
+.chat-send-btn {
+  border: none;
+  background: var(--cb-accent);
+  color: #fff;
+  width: 28px;
+  height: 28px;
+}
+
+.chat-send-btn:hover {
+  background: color-mix(in srgb, var(--cb-accent) 85%, black);
+}
+
+/* ---- hide both while in quiet / focus mode ---- */
+
+#stage.quiet .chat-trigger,
+#stage.quiet .chat-bar {
+  display: none !important;
+}
+
+/* recording state: caret turns red and placeholder pulses */
+.chat-input.chat-recording {
+  caret-color: #e5533c;
+  animation: chat-mic-pulse 1s ease-in-out infinite alternate;
+}
+
+@keyframes chat-mic-pulse {
+  from { opacity: 1; }
+  to   { opacity: 0.55; }
+}

@@ -73,6 +73,12 @@ const el = {
   hunger: document.getElementById("hunger"),
   hungerFill: document.getElementById("hunger-fill"),
   countdown: document.getElementById("countdown"),
+  // inline chat bar
+  chatTrigger: document.getElementById("chat-trigger"),
+  chatBar: document.getElementById("chat-bar"),
+  chatInput: document.getElementById("chat-input"),
+  chatSend: document.getElementById("chat-send"),
+  chatChevron: document.getElementById("chat-chevron"),
 };
 
 // --- settings ----------------------------------------------------------------
@@ -635,6 +641,7 @@ function frame() {
 
   applyTransform();
   companion.position();
+  positionChatBar();
   if (state.placing === "food" || state.placing === "buddyFood") {
     el.food.style.transform = `translate3d(${state.cursor.x - foodSize() / 2}px, ${state.cursor.y - foodSize() / 2}px, 0)`;
   }
@@ -756,6 +763,8 @@ function reportHitRegions() {
   if (!el.bubble.hidden) regions.push(rectOf(el.bubble));
   if (menuEl) regions.push(rectOf(menuEl));
   if (buddy.pet) regions.push(rectOf(el.buddy));
+  if (!el.chatTrigger.hidden) regions.push(rectOf(el.chatTrigger));
+  if (!el.chatBar.hidden) regions.push(rectOf(el.chatBar));
   for (const r of games.hitRegions()) regions.push({ x: r.x, y: r.y, w: r.width, h: r.height });
 
   const physical = regions
@@ -2265,7 +2274,189 @@ async function boot() {
   setInterval(tickSchedules, 30_000);
   setTimeout(maybeCheckUpdate, 20_000);
   scheduleFrame();
+  // Show pen trigger once the pet is positioned for the first time
+  el.chatTrigger.hidden = false;
 }
+
+// --- inline chat bar ---------------------------------------------------------
+// A small pen-icon trigger floats below the pet's feet. Clicking it reveals
+// a pill-shaped input; pressing Enter (or the send button) fires agent_run
+// and shows progress + the answer through the existing speech bubble.
+
+let chatBarOpen = false;
+let chatRecorder = null;
+let chatRecChunks = [];
+
+/** Move the trigger/bar to just below the pet's feet, centered on footX(). */
+function positionChatBar() {
+  if (state.hidden) return;
+  const trigW = 28;
+  const barW  = el.chatBar.offsetWidth || 240;
+
+  // 8 px below the feet
+  const ty = state.y + SIZE + 8;
+
+  if (!el.chatBar.hidden) {
+    // bar visible: center it, hide the trigger
+    const bx = clamp(state.x + SIZE / 2 - barW / 2, 4, overlayW() - barW - 4);
+    el.chatBar.style.transform  = `translate3d(${bx}px, ${ty}px, 0)`;
+    el.chatTrigger.hidden = true;
+  } else {
+    // trigger visible: center it
+    const tx = state.x + SIZE / 2 - trigW / 2;
+    el.chatTrigger.style.transform = `translate3d(${tx}px, ${ty}px, 0)`;
+  }
+}
+
+function openChatBar() {
+  if (state.placing || state.mode !== "free") return;
+  chatBarOpen = true;
+  el.chatBar.hidden = false;
+  el.chatTrigger.hidden = true;
+  positionChatBar();
+  // small delay so the animation plays before focus shifts
+  requestAnimationFrame(() => el.chatInput.focus());
+}
+
+function closeChatBar() {
+  chatBarOpen = false;
+  el.chatBar.hidden = true;
+  el.chatTrigger.hidden = false;
+  el.chatInput.value = "";
+  stopChatMic();
+}
+
+async function submitChat() {
+  const task = el.chatInput.value.trim();
+  if (!task) { closeChatBar(); return; }
+  if (taskRunning) {
+    say("I'm already working on something!", 2000);
+    return;
+  }
+
+  closeChatBar();
+  say("On it… 🤔", 60_000);   // replaced when the answer arrives
+  setAnim("look");
+  state.antic = null;
+
+  const provider = settings.agent?.provider ?? "claude";
+  const day      = new Date().toISOString().slice(0, 10);
+  const cap      = settings.agent?.dailyCapUsd ?? 0;
+  const spent    = settings.agent?.spend?.date === day ? (settings.agent.spend.usd ?? 0) : 0;
+  const budget   = cap > 0 ? Math.max(0, cap - spent) : 0;
+
+  if (cap > 0 && budget <= 0) {
+    say("Daily spend cap reached. Raise it in the Tasks window › Limits.", 4000);
+    setAnim("idle");
+    return;
+  }
+
+  const id = `inline-${Date.now().toString(36)}`;
+
+  invoke("agent_run", {
+    req: {
+      id,
+      task,
+      provider,
+      model:            settings.agent?.models?.[provider]  ?? "",
+      baseUrl:          settings.agent?.baseUrls?.[provider] ?? "",
+      petName:          petName(),
+      maxTurns:         settings.agent?.maxTurns  ?? 24,
+      allowedSites:     settings.agent?.allowedSites ?? [],
+      siteRules:        settings.agent?.siteRules   ?? [],
+      budgetUsd:        budget,
+      purchaseCap:      settings.agent?.purchaseCap ?? 0,
+      browser:          settings.agent?.browser     ?? true,
+      digestModel:      settings.agent?.digestModel ?? "",
+      continuePrevious: false,
+      stream:           settings.agent?.stream      ?? false,
+    },
+  }).catch(() => {
+    say("Couldn't start that. Is a provider set up in the Tasks window?", 3500);
+    setAnim("idle");
+  });
+}
+
+// ---- voice input (hold-to-record via MediaRecorder) ----
+
+function stopChatMic() {
+  if (chatRecorder && chatRecorder.state === "recording") chatRecorder.stop();
+  chatRecorder = null;
+}
+
+async function toggleChatMic() {
+  if (chatRecorder) { stopChatMic(); return; }
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    say("Mic not available. Try Win+H to dictate.", 2200);
+    return;
+  }
+
+  chatRecChunks = [];
+  chatRecorder  = new MediaRecorder(stream, { mimeType: "audio/webm" });
+
+  chatRecorder.ondataavailable = (e) => chatRecChunks.push(e.data);
+  chatRecorder.onstop = async () => {
+    stream.getTracks().forEach((t) => t.stop());
+    el.chatInput.classList.remove("chat-recording");
+    const blob = new Blob(chatRecChunks, { type: "audio/webm" });
+    chatRecorder = null;
+    if (blob.size < 1500) return;
+
+    el.chatInput.placeholder = "Transcribing…";
+    try {
+      const b64 = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload  = () => res(String(r.result).split(",")[1]);
+        r.onerror = rej;
+        r.readAsDataURL(blob);
+      });
+      const text = await invoke("agent_transcribe", { audioB64: b64, mime: "audio/webm" });
+      el.chatInput.value = (el.chatInput.value.trim() ? el.chatInput.value.trim() + " " : "") + text;
+      el.chatInput.focus();
+    } catch (err) {
+      say(String(err).slice(0, 80), 2500);
+    } finally {
+      el.chatInput.placeholder = "Start new chat";
+    }
+  };
+
+  chatRecorder.start();
+  el.chatInput.classList.add("chat-recording");
+  el.chatInput.placeholder = "Listening… tap mic to stop";
+}
+
+// ---- event wiring ----
+
+el.chatTrigger.addEventListener("click", (e) => {
+  e.stopPropagation();
+  openChatBar();
+});
+
+el.chatChevron.addEventListener("click", (e) => {
+  e.stopPropagation();
+  closeChatBar();
+});
+
+el.chatSend.addEventListener("click", (e) => {
+  e.stopPropagation();
+  submitChat();
+});
+
+el.chatInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitChat(); }
+  if (e.key === "Escape") closeChatBar();
+  e.stopPropagation();
+});
+
+// stop clicks/pointerdown on the bar from bubbling to the stage and triggering
+// the "cancel placing" right-click handler or pet drag
+el.chatBar.addEventListener("pointerdown", (e) => e.stopPropagation());
+el.chatBar.addEventListener("click",       (e) => e.stopPropagation());
+el.chatTrigger.addEventListener("pointerdown", (e) => e.stopPropagation());
 
 // Debug hook: lets devtools (or a CDP script) poke at live state.
 window.__pet = {
