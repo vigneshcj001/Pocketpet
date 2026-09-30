@@ -70,7 +70,7 @@
         </svg>
       </button>
 
-      <div id="chat-bar" class="chat-bar" hidden role="search" aria-label="Ask the pet">
+      <div id="chat-bar" class="chat-bar" hidden role="group" aria-label="Ask the pet">
         <!-- chevron/collapse -->
         <button type="button" id="chat-chevron" class="chat-icon-btn"
                 title="Collapse" aria-label="Close chat bar">
@@ -86,6 +86,7 @@
           id="chat-input"
           class="chat-input"
           placeholder="Start new chat"
+          maxlength="2000"
           autocomplete="off"
           spellcheck="false"
           aria-label="Type a prompt for the pet"

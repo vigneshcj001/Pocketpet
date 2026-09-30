@@ -63,6 +63,7 @@ struct LastForeground(Mutex<isize>);
 enum TaskIntent {
     Voice,
     Clip { text: String },
+    Run { text: String },
 }
 
 #[derive(Default)]
@@ -709,6 +710,22 @@ fn consume_task_intents(window: WebviewWindow, pending: State<'_, PendingTaskInt
     pending.take()
 }
 
+/// Route inline chat through Tasks, which owns progress, approvals and the queue.
+#[tauri::command]
+async fn submit_inline_task(window: WebviewWindow, app: AppHandle, task: String) -> Result<(), String> {
+    if window.label() != "overlay" {
+        return Err("Only the pet overlay can submit an inline task.".into());
+    }
+    let task = task.trim();
+    if task.is_empty() || task.chars().count() > 2000 {
+        return Err("Task must contain 1–2000 characters.".into());
+    }
+    open_tasks(app.clone()).await?;
+    app.state::<PendingTaskIntents>().push(TaskIntent::Run { text: task.to_string() });
+    let _ = app.emit_to("tasks", "pet://task-intents", ());
+    Ok(())
+}
+
 fn dispatch_task_intent(app: &AppHandle, intent: TaskIntent) {
     if let Some(pending) = app.try_state::<PendingTaskIntents>() {
         pending.push(intent);
@@ -1163,6 +1180,7 @@ pub fn run() {
             window_for_pid,
             open_tasks,
             consume_task_intents,
+            submit_inline_task,
             open_external,
             quit_app,
         ])
@@ -1255,8 +1273,10 @@ mod native_tests {
         let pending = PendingTaskIntents::default();
         pending.push(TaskIntent::Voice);
         pending.push(TaskIntent::Clip { text: "clipboard before startup".into() });
+        pending.push(TaskIntent::Run { text: "inline task".into() });
         assert_eq!(pending.take(), vec![TaskIntent::Voice,
-            TaskIntent::Clip { text: "clipboard before startup".into() }]);
+            TaskIntent::Clip { text: "clipboard before startup".into() },
+            TaskIntent::Run { text: "inline task".into() }]);
         assert!(pending.take().is_empty(), "the wake-up event must not repeat startup actions");
         pending.push(TaskIntent::Clip { text: "later clipboard".into() });
         assert_eq!(pending.take(), vec![TaskIntent::Clip { text: "later clipboard".into() }]);

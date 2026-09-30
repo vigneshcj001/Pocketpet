@@ -794,14 +794,3 @@ body {
 #stage.quiet .chat-bar {
   display: none !important;
 }
-
-/* recording state: caret turns red and placeholder pulses */
-.chat-input.chat-recording {
-  caret-color: #e5533c;
-  animation: chat-mic-pulse 1s ease-in-out infinite alternate;
-}
-
-@keyframes chat-mic-pulse {
-  from { opacity: 1; }
-  to   { opacity: 0.55; }
-}

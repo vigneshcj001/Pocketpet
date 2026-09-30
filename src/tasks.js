@@ -985,6 +985,14 @@ function drainTaskIntents() {
         autosize();
         $("task").focus();
         $("task").setSelectionRange(0, 0);
+      } else if (intent.kind === "run") {
+        const task = (intent.text ?? "").trim();
+        if (!task) continue;
+        showComposer();
+        $("task").value = task;
+        $("followUp").checked = false;
+        autosize();
+        submitTask(task, false);
       }
     }
   }).catch((error) => {
@@ -993,6 +1001,7 @@ function drainTaskIntents() {
   return taskIntentDrain;
 }
 const taskIntentListener = listen("pet://task-intents", drainTaskIntents);
+window.addEventListener("focus", drainTaskIntents);
 
 // --- history -------------------------------------------------------------------------
 
