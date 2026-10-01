@@ -587,19 +587,19 @@ $("task").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) submitTask($("task").value.trim(), $("followUp").checked);
 });
 
-function submitTask(task, followUp) {
+function submitTask(task, followUp, { scheduled = false } = {}) {
   if (!task) return;
   if (current) {
     if (queue.length >= 3) {
       $("status").textContent = "Queue is full (3).";
       return;
     }
-    queue.push({ task, followUp: false });
+    queue.push({ task, followUp: false, scheduled });
     $("task").value = "";
     renderQueue();
     return;
   }
-  startTask(task, followUp);
+  startTask(task, followUp, { scheduled });
 }
 
 function renderQueue() {
@@ -624,7 +624,7 @@ function renderQueue() {
   });
 }
 
-async function startTask(task, followUp = false) {
+async function startTask(task, followUp = false, { scheduled = false } = {}) {
   if (!task || current) return;
   lastTerminal = null;
   terminalViewed = null;
@@ -637,7 +637,8 @@ async function startTask(task, followUp = false) {
   }
   const provider = $("provider").value;
   const model = $("model").value.trim();
-  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  // The overlay recognises scheduled runs by this prefix (completion toast).
+  const id = `${scheduled ? "sched-" : ""}${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   current = { id, task, provider, model, startedAt: Date.now(), paused: false, host: "" };
   $("log").innerHTML = "";
   $("answerCard").hidden = true;
@@ -776,7 +777,7 @@ function finish(status, text) {
     const next = queue.shift();
     renderQueue();
     $("task").value = next.task;
-    setTimeout(() => startTask(next.task, false), 400);
+    setTimeout(() => startTask(next.task, false, { scheduled: next.scheduled }), 400);
   }
 }
 
@@ -836,6 +837,9 @@ $("followBtn").addEventListener("click", () => {
 listen("pet://task", ({ payload }) => {
   const { kind, text, detail } = payload;
   if (kind === "killed") {
+    // The kill switch stops everything: queued tasks must not start afterwards.
+    queue.length = 0;
+    renderQueue();
     if (current) finish("cancelled", "Stopped by the kill switch.");
     logLine("killed", text);
     return;
@@ -992,7 +996,7 @@ function drainTaskIntents() {
         $("task").value = task;
         $("followUp").checked = false;
         autosize();
-        submitTask(task, false);
+        submitTask(task, false, { scheduled: intent.scheduled === true });
       }
     }
   }).catch((error) => {

@@ -63,7 +63,8 @@ struct LastForeground(Mutex<isize>);
 enum TaskIntent {
     Voice,
     Clip { text: String },
-    Run { text: String },
+    /// `scheduled` marks a task started by a schedule rather than by the user.
+    Run { text: String, #[serde(default)] scheduled: bool },
 }
 
 #[derive(Default)]
@@ -710,9 +711,10 @@ fn consume_task_intents(window: WebviewWindow, pending: State<'_, PendingTaskInt
     pending.take()
 }
 
-/// Route inline chat through Tasks, which owns progress, approvals and the queue.
+/// Route inline chat and scheduled errands through Tasks, which owns progress,
+/// approvals and the queue.
 #[tauri::command]
-async fn submit_inline_task(window: WebviewWindow, app: AppHandle, task: String) -> Result<(), String> {
+async fn submit_inline_task(window: WebviewWindow, app: AppHandle, task: String, scheduled: Option<bool>) -> Result<(), String> {
     if window.label() != "overlay" {
         return Err("Only the pet overlay can submit an inline task.".into());
     }
@@ -720,8 +722,8 @@ async fn submit_inline_task(window: WebviewWindow, app: AppHandle, task: String)
     if task.is_empty() || task.chars().count() > 2000 {
         return Err("Task must contain 1–2000 characters.".into());
     }
+    app.state::<PendingTaskIntents>().push(TaskIntent::Run { text: task.to_string(), scheduled: scheduled.unwrap_or(false) });
     open_tasks(app.clone()).await?;
-    app.state::<PendingTaskIntents>().push(TaskIntent::Run { text: task.to_string() });
     let _ = app.emit_to("tasks", "pet://task-intents", ());
     Ok(())
 }
@@ -1273,10 +1275,10 @@ mod native_tests {
         let pending = PendingTaskIntents::default();
         pending.push(TaskIntent::Voice);
         pending.push(TaskIntent::Clip { text: "clipboard before startup".into() });
-        pending.push(TaskIntent::Run { text: "inline task".into() });
+        pending.push(TaskIntent::Run { text: "inline task".into(), scheduled: false });
         assert_eq!(pending.take(), vec![TaskIntent::Voice,
             TaskIntent::Clip { text: "clipboard before startup".into() },
-            TaskIntent::Run { text: "inline task".into() }]);
+            TaskIntent::Run { text: "inline task".into(), scheduled: false }]);
         assert!(pending.take().is_empty(), "the wake-up event must not repeat startup actions");
         pending.push(TaskIntent::Clip { text: "later clipboard".into() });
         assert_eq!(pending.take(), vec![TaskIntent::Clip { text: "later clipboard".into() }]);

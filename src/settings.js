@@ -7,6 +7,7 @@ import {
   writeSettings,
   normalizeSettings,
   parseBackup,
+  keepLocalTrust,
   profileFor,
   milestonesFor,
   accessoryUnlocked,
@@ -797,12 +798,12 @@ $("importBackup").addEventListener("click", async () => {
       status.textContent = "Import cancelled.";
       return;
     }
-    const restored = parseBackup(JSON.parse(text));
+    const restored = keepLocalTrust(parseBackup(JSON.parse(text)), readSettings());
     localStorage.setItem(STORAGE_KEY, JSON.stringify(restored));
     settings = readSettings();
     emit("pet://settings", { restored: true }).catch(() => {});
     fill();
-    status.textContent = "Backup restored.";
+    status.textContent = "Backup restored. Provider URLs and site rules on this computer were kept.";
   } catch (err) {
     status.textContent = `Import failed: ${err.message ?? err}`;
   }

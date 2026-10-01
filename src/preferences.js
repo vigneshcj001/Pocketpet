@@ -250,6 +250,18 @@ export function accessoryUnlocked(settings, id, accessory) {
   return milestonesFor(profileFor(settings, id)).some((m) => m.id === reward && m.unlocked);
 }
 
+/**
+ * Provider URLs receive API keys and site rules approve clicks without asking,
+ * so a backup (possibly someone else's) never replaces this machine's own.
+ */
+export function keepLocalTrust(restored, current) {
+  const local = normalizeSettings(current);
+  return normalizeSettings({
+    ...restored,
+    agent: { ...restored.agent, baseUrls: local.agent.baseUrls, siteRules: local.agent.siteRules },
+  });
+}
+
 export function parseBackup(value) {
   if (!value || value.app !== "PocketPet" || value.version !== 1 || !value.settings || typeof value.settings !== "object" || Array.isArray(value.settings))
     throw new Error("Choose a PocketPet backup with version 1.");

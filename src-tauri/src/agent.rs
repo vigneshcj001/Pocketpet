@@ -106,6 +106,9 @@ fn target_name(provider_id: &str) -> HSTRING {
 
 #[cfg(windows)]
 pub fn store_key(provider_id: &str, key: &str) -> Result<(), String> {
+    if provider(provider_id).is_none() {
+        return Err("Unknown provider.".into());
+    }
     let target = target_name(provider_id);
     let user = HSTRING::from("api-key");
     let blob: Vec<u8> = key.as_bytes().to_vec();
@@ -139,6 +142,9 @@ pub fn read_key(provider_id: &str) -> Option<String> {
 
 #[cfg(windows)]
 pub fn delete_key(provider_id: &str) -> bool {
+    if provider(provider_id).is_none() {
+        return false;
+    }
     let target = target_name(provider_id);
     unsafe { CredDeleteW(&target, CRED_TYPE_GENERIC, 0) }.is_ok()
 }
@@ -1252,6 +1258,7 @@ async fn anthropic_turn(ctx: &mut Ctx<'_>, body: &Value) -> Result<(Value, Strin
         let mut partial: HashMap<usize, String> = HashMap::new();
         let mut stop = String::new();
         let (mut usage_in, mut usage_out) = (0u64, 0u64);
+        let mut emitted = false;
         let app = ctx.app.clone();
         let id = ctx.req.id.clone();
         let res = sse_data(resp, |data| {
@@ -1263,8 +1270,15 @@ async fn anthropic_turn(ctx: &mut Ctx<'_>, body: &Value) -> Result<(Value, Strin
                 Some("content_block_start") => {
                     let idx = ev.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
                     let mut block = ev.get("content_block").cloned().unwrap_or(json!({}));
-                    if block.get("type").and_then(Value::as_str) == Some("text") {
-                        block["text"] = json!("");
+                    match block.get("type").and_then(Value::as_str) {
+                        Some("text") => block["text"] = json!(""),
+                        // Thinking blocks must go back unchanged, signature included,
+                        // or the next tool-use turn is rejected.
+                        Some("thinking") => {
+                            block["thinking"] = json!("");
+                            block["signature"] = json!("");
+                        }
+                        _ => {}
                     }
                     while blocks.len() <= idx {
                         blocks.push(Value::Null);
@@ -1281,7 +1295,16 @@ async fn anthropic_turn(ctx: &mut Ctx<'_>, body: &Value) -> Result<(Value, Strin
                                 let cur = b.get("text").and_then(Value::as_str).unwrap_or("").to_string();
                                 b["text"] = json!(cur + t);
                             }
+                            emitted = true;
                             let _ = app.emit("pet://task", TaskEvent { id: &id, kind: "delta", text: t.to_string(), detail: None });
+                        }
+                        Some(kind @ ("thinking_delta" | "signature_delta")) => {
+                            let field = if kind == "thinking_delta" { "thinking" } else { "signature" };
+                            let piece = delta.get(field).and_then(Value::as_str).unwrap_or("");
+                            if let Some(b) = blocks.get_mut(idx) {
+                                let cur = b.get(field).and_then(Value::as_str).unwrap_or("").to_string();
+                                b[field] = json!(cur + piece);
+                            }
                         }
                         Some("input_json_delta") => {
                             partial.entry(idx).or_default().push_str(delta.get("partial_json").and_then(Value::as_str).unwrap_or(""));
@@ -1319,6 +1342,10 @@ async fn anthropic_turn(ctx: &mut Ctx<'_>, body: &Value) -> Result<(Value, Strin
         if res.is_ok() && !blocks.is_empty() {
             let blocks: Vec<Value> = blocks.into_iter().filter(|b| !b.is_null()).collect();
             return Ok((Value::Array(blocks), stop, usage_in, usage_out));
+        }
+        // Part of the answer is already on screen; a retry would show it twice.
+        if emitted {
+            return Err(res.err().unwrap_or_else(|| "The response stream ended early.".into()));
         }
         emit(ctx.app, &ctx.req.id, "note", "streaming failed; retrying without it", None);
     }
@@ -1522,6 +1549,10 @@ async fn openai_turn(ctx: &mut Ctx<'_>, body: &Value) -> Result<(Value, u64, u64
                         msg["tool_calls"] = Value::Array(calls);
                     }
                     return Ok((msg, usage_in, usage_out));
+                }
+                // Part of the answer is already on screen; a retry would show it twice.
+                if !content.is_empty() {
+                    return Err(res.err().unwrap_or_else(|| "The response stream ended early.".into()));
                 }
             }
             Ok(resp) => {

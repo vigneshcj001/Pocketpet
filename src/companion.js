@@ -156,6 +156,11 @@ export function createCompanion({ invoke, listen, getPetElement, getQuiet, onErr
         panel.style.top = `${Math.round(panelTop - top)}px`;
       }
     },
+    close() {
+      if (!controlsOpen) return;
+      controlsOpen = false;
+      paint();
+    },
     regions() { return root.hidden ? [] : [launcher, ...(!panel.hidden ? [controls, ...(!pill.hidden ? [pill] : [])] : [])]; },
   };
 }

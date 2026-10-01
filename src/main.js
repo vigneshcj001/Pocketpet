@@ -2116,31 +2116,11 @@ function tickSchedules() {
   const day = now.toISOString().slice(0, 10);
   settings.agent = { ...settings.agent, schedules: settings.agent.schedules.map((s) => (s.id === due.id ? { ...s, lastRun: day } : s)) };
   saveSettings();
-  const provider = settings.agent.provider;
-  const id = `sched-${Date.now().toString(36)}`;
   const cap = settings.agent.dailyCapUsd;
   const spent = settings.agent.spend?.date === day ? settings.agent.spend.usd : 0;
-  const budget = cap > 0 ? Math.max(0, cap - spent) : 0;
-  if (cap > 0 && budget <= 0) return;
-  invoke("agent_run", {
-    req: {
-      id,
-      task: due.task,
-      provider,
-      model: settings.agent.models[provider] ?? "",
-      baseUrl: settings.agent.baseUrls[provider] ?? "",
-      petName: petName(),
-      maxTurns: settings.agent.maxTurns,
-      allowedSites: settings.agent.allowedSites,
-      siteRules: settings.agent.siteRules,
-      budgetUsd: budget,
-      purchaseCap: settings.agent.purchaseCap,
-      browser: settings.agent.browser,
-      digestModel: settings.agent.digestModel,
-      continuePrevious: false,
-      stream: settings.agent.stream,
-    },
-  }).catch(() => {});
+  if (cap > 0 && cap - spent <= 0) return;
+  // The Tasks window runs it: that is where approvals and questions are answered.
+  invoke("submit_inline_task", { task: due.task, scheduled: true }).catch(() => {});
   say(`Time for my scheduled errand: ${due.task.slice(0, 60)}…`, 3000);
 }
 
@@ -2284,29 +2264,40 @@ async function boot() {
 // a pill-shaped input; pressing Enter hands the task to the Tasks window,
 // which owns progress, approvals, and the queue.
 
-/** Move the trigger/bar to just below the pet's feet, centered on footX(). */
+/**
+ * The companion's ⋯ launcher sits centred below the pet (above it near the
+ * bottom of the screen). Put the pen trigger beside it, and the open bar on
+ * the far side of that row, so neither covers the launcher.
+ */
+const LAUNCHER = 32; // .companion-launcher size, kept in sync with companion.css
+const CHAT_GAP = 6;
 function positionChatBar() {
   if (state.hidden) return;
-  const trigW = 28;
-  const barVisible = !el.chatBar.hidden;
-  const controlH = barVisible ? el.chatBar.offsetHeight || 40 : trigW;
-  const below = state.y + SIZE + 8;
-  const ty = below + controlH <= overlayH() - 4
-    ? below : Math.max(4, state.y - controlH - 8);
+  const pet = el.pet.getBoundingClientRect();
+  const center = pet.left + pet.width / 2;
+  const below = pet.bottom + 9;
+  const rowBelow = below + LAUNCHER <= overlayH() - 8;
+  const rowTop = rowBelow ? below : Math.max(8, pet.top - LAUNCHER - 10);
 
-  if (barVisible) {
+  if (!el.chatBar.hidden) {
     const barW = el.chatBar.offsetWidth || 240;
-    const bx = clamp(state.x + SIZE / 2 - barW / 2, 4, Math.max(4, overlayW() - barW - 4));
-    el.chatBar.style.transform  = `translate3d(${bx}px, ${ty}px, 0)`;
+    const barH = el.chatBar.offsetHeight || 40;
+    const bx = clamp(center - barW / 2, 4, Math.max(4, overlayW() - barW - 4));
+    const by = rowBelow ? rowTop + LAUNCHER + CHAT_GAP : rowTop - barH - CHAT_GAP;
+    el.chatBar.style.transform = `translate3d(${bx}px, ${clamp(by, 4, Math.max(4, overlayH() - barH - 4))}px, 0)`;
     el.chatTrigger.hidden = true;
   } else {
-    const tx = clamp(state.x + SIZE / 2 - trigW / 2, 4, Math.max(4, overlayW() - trigW - 4));
-    el.chatTrigger.style.transform = `translate3d(${tx}px, ${ty}px, 0)`;
+    const trigW = 28;
+    let tx = center + LAUNCHER / 2 + CHAT_GAP;
+    if (tx + trigW > overlayW() - 4) tx = center - LAUNCHER / 2 - CHAT_GAP - trigW;
+    const ty = rowTop + (LAUNCHER - trigW) / 2;
+    el.chatTrigger.style.transform = `translate3d(${Math.max(4, tx)}px, ${ty}px, 0)`;
   }
 }
 
 function openChatBar() {
   if (state.placing || state.mode !== "free") return;
+  companion.close(); // its panel opens in the same spot
   el.chatBar.hidden = false;
   el.chatTrigger.hidden = true;
   positionChatBar();
@@ -2336,6 +2327,13 @@ async function submitChat() {
 el.chatTrigger.addEventListener("click", (e) => {
   e.stopPropagation();
   openChatBar();
+});
+
+// The companion panel opens where the bar sits; fold the bar (keeping its text).
+document.getElementById("companion-launcher").addEventListener("click", () => {
+  if (el.chatBar.hidden) return;
+  el.chatBar.hidden = true;
+  el.chatTrigger.hidden = false;
 });
 
 el.chatChevron.addEventListener("click", (e) => {

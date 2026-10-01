@@ -1,4 +1,4 @@
-﻿//! "Run at startup" and the global hotkeys.
+//! "Run at startup" and the global hotkeys.
 //!
 //! Startup is the per-user `HKCU\...\Run` value: no admin rights, no task
 //! scheduler, and the uninstaller's job is just to delete one value. Hotkeys
@@ -75,7 +75,7 @@ pub struct Combo {
 }
 
 /// Parse "Ctrl+Alt+P", "Ctrl+Shift+F5", "Win+Alt+1". Returns `None` when the
-/// text names no key or no modifier â€” a bare letter must never become a
+/// text names no key or no modifier — a bare letter must never become a
 /// global hotkey, it would eat the user's typing.
 pub fn parse_combo(text: &str) -> Option<Combo> {
     let mut mods = 0u32;

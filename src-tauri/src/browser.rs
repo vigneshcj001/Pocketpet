@@ -8,7 +8,7 @@
 //! and friends behave as with a human.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -88,6 +88,8 @@ struct Cdp {
     tx: mpsc::UnboundedSender<String>,
     pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
     next: AtomicU64,
+    /// Set once the websocket reader has stopped.
+    closed: Arc<AtomicBool>,
 }
 
 impl Cdp {
@@ -97,6 +99,8 @@ impl Cdp {
         let (tx, mut rx) = mpsc::unbounded_channel::<String>();
         let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>> = Arc::new(Mutex::new(HashMap::new()));
         let p2 = pending.clone();
+        let closed = Arc::new(AtomicBool::new(false));
+        let closed2 = closed.clone();
         tokio::spawn(async move {
             while let Some(text) = rx.recv().await {
                 if sink.send(Message::Text(text.into())).await.is_err() {
@@ -117,14 +121,24 @@ impl Cdp {
                     }
                 }
             }
+            // The browser went away (closed by the user, crashed). Fail every
+            // waiting call now instead of letting each one time out.
+            closed2.store(true, Ordering::SeqCst);
+            p2.lock().await.clear();
         });
-        Ok(Arc::new(Cdp { tx, pending, next: AtomicU64::new(1) }))
+        Ok(Arc::new(Cdp { tx, pending, next: AtomicU64::new(1), closed }))
     }
 
     async fn call(&self, session: Option<&str>, method: &str, params: Value) -> Result<Value, String> {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.insert(id, tx);
+        // Checked after inserting, so a disconnect that cleared the map just
+        // before cannot leave this call waiting.
+        if self.closed.load(Ordering::SeqCst) {
+            self.pending.lock().await.remove(&id);
+            return Err("CDP connection dropped (browser closed?)".into());
+        }
         let mut msg = json!({ "id": id, "method": method, "params": params });
         if let Some(s) = session {
             msg["sessionId"] = json!(s);
@@ -409,25 +423,8 @@ impl Browser {
                 _ => 0,
             };
         }
-        let (code, vk, text) = match key.to_ascii_lowercase().as_str() {
-            "enter" | "return" => ("Enter", 13, Some("\r")),
-            "tab" => ("Tab", 9, None),
-            "escape" | "esc" => ("Escape", 27, None),
-            "backspace" => ("Backspace", 8, None),
-            "delete" => ("Delete", 46, None),
-            "arrowdown" | "down" => ("ArrowDown", 40, None),
-            "arrowup" | "up" => ("ArrowUp", 38, None),
-            "arrowleft" | "left" => ("ArrowLeft", 37, None),
-            "arrowright" | "right" => ("ArrowRight", 39, None),
-            "pagedown" => ("PageDown", 34, None),
-            "pageup" => ("PageUp", 33, None),
-            "home" => ("Home", 36, None),
-            "end" => ("End", 35, None),
-            "space" | " " => ("Space", 32, Some(" ")),
-            k if k.len() == 1 => ("KeyX", k.to_ascii_uppercase().as_bytes()[0] as i32, None),
-            _ => return Err(format!("Unknown key '{key}'")),
-        };
-        let key_name = if key.len() == 1 { key.to_string() } else { code.to_string() };
+        let (code, vk, text) = key_code(key).ok_or_else(|| format!("Unknown key '{key}'"))?;
+        let key_name = if key.len() == 1 { key.to_string() } else { code.clone() };
         let mut down = json!({ "type": "keyDown", "key": key_name, "code": code, "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk, "modifiers": modifiers });
         if let Some(t) = text {
             down["text"] = json!(t);
@@ -472,6 +469,35 @@ impl Browser {
             tokio::time::sleep(Duration::from_millis(500)).await;
             let _ = c.kill();
         }
+    }
+}
+
+/// DOM `code`, Windows virtual-key code and inserted text for a key name.
+/// Letters and digits get their own code (`KeyA`, `Digit1`): pages that read
+/// `event.code` must not see Ctrl+A as some other shortcut.
+fn key_code(key: &str) -> Option<(String, i32, Option<&'static str>)> {
+    let named = |code: &str, vk: i32, text: Option<&'static str>| Some((code.to_string(), vk, text));
+    match key.to_ascii_lowercase().as_str() {
+        "enter" | "return" => named("Enter", 13, Some("\r")),
+        "tab" => named("Tab", 9, None),
+        "escape" | "esc" => named("Escape", 27, None),
+        "backspace" => named("Backspace", 8, None),
+        "delete" => named("Delete", 46, None),
+        "arrowdown" | "down" => named("ArrowDown", 40, None),
+        "arrowup" | "up" => named("ArrowUp", 38, None),
+        "arrowleft" | "left" => named("ArrowLeft", 37, None),
+        "arrowright" | "right" => named("ArrowRight", 39, None),
+        "pagedown" => named("PageDown", 34, None),
+        "pageup" => named("PageUp", 33, None),
+        "home" => named("Home", 36, None),
+        "end" => named("End", 35, None),
+        "space" | " " => named("Space", 32, Some(" ")),
+        k if k.len() == 1 && k.as_bytes()[0].is_ascii_alphabetic() => {
+            let upper = k.to_ascii_uppercase();
+            Some((format!("Key{upper}"), upper.as_bytes()[0] as i32, None))
+        }
+        k if k.len() == 1 && k.as_bytes()[0].is_ascii_digit() => Some((format!("Digit{k}"), k.as_bytes()[0] as i32, None)),
+        _ => None,
     }
 }
 
@@ -528,3 +554,17 @@ const READ_PAGE_JS: &str = r#"(() => {
   return 'URL: ' + location.href + '\nTITLE: ' + document.title + '\nSCROLL: ' + Math.round(scrollY) + '/' + Math.max(0, Math.round(document.documentElement.scrollHeight - innerHeight)) +
     '\n\nINTERACTIVE ELEMENTS (use the [n] ref):\n' + (lines.join('\n') || '(none visible)') + '\n\nPAGE TEXT:\n' + body;
 })()"#;
+
+#[cfg(test)]
+mod tests {
+    use super::key_code;
+
+    #[test]
+    fn letters_and_digits_get_their_own_key_codes() {
+        assert_eq!(key_code("a"), Some(("KeyA".into(), 65, None)));
+        assert_eq!(key_code("X"), Some(("KeyX".into(), 88, None)));
+        assert_eq!(key_code("7"), Some(("Digit7".into(), 55, None)));
+        assert_eq!(key_code("Enter"), Some(("Enter".into(), 13, Some("\r"))));
+        assert_eq!(key_code("nonsense"), None);
+    }
+}
