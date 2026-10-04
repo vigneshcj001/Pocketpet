@@ -20,6 +20,7 @@ import {
 import { createGames, TOYS } from "./games.js";
 import { createCompanion } from "./companion.js";
 import { taskNarration } from "./narration.js";
+import { localDay, scheduleDue } from "./schedule.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -74,7 +75,6 @@ const el = {
   hungerFill: document.getElementById("hunger-fill"),
   countdown: document.getElementById("countdown"),
   // inline chat bar
-  chatTrigger: document.getElementById("chat-trigger"),
   chatBar: document.getElementById("chat-bar"),
   chatInput: document.getElementById("chat-input"),
   chatSend: document.getElementById("chat-send"),
@@ -763,7 +763,6 @@ function reportHitRegions() {
   if (!el.bubble.hidden) regions.push(rectOf(el.bubble));
   if (menuEl) regions.push(rectOf(menuEl));
   if (buddy.pet) regions.push(rectOf(el.buddy));
-  if (!state.quiet && !el.chatTrigger.hidden) regions.push(rectOf(el.chatTrigger));
   if (!state.quiet && !el.chatBar.hidden) regions.push(rectOf(el.chatBar));
   for (const r of games.hitRegions()) regions.push({ x: r.x, y: r.y, w: r.width, h: r.height });
 
@@ -2025,6 +2024,7 @@ const companion = createCompanion({
   getPetElement: () => el.pet,
   getQuiet: () => state.hidden || state.quiet || state.dragging || games.isActive(),
   onError: (message) => say(message, 4000),
+  onChat: openChatBar,
 });
 
 let taskAnim = null;
@@ -2094,34 +2094,36 @@ function speakAloud(text) {
 
 let taskRunning = false;
 
-function scheduleDue(s, now) {
-  if (!s.enabled) return false;
-  const day = now.toISOString().slice(0, 10);
-  if (s.lastRun === day) return false;
-  const dow = now.getDay();
-  if (s.days === "weekdays" && (dow === 0 || dow === 6)) return false;
-  if (s.days === "weekends" && dow !== 0 && dow !== 6) return false;
-  const [hh, mm] = s.time.split(":").map(Number);
-  const minutes = now.getHours() * 60 + now.getMinutes();
-  const at = hh * 60 + mm;
-  // Fire within a 10-minute window after the time (in case the app was busy).
-  return minutes >= at && minutes < at + 10;
-}
-
-function tickSchedules() {
+const submittingSchedules = new Set();
+const scheduleFailures = new Map();
+async function tickSchedules() {
   if (taskRunning || state.hidden || state.quiet) return;
   const now = new Date();
-  const due = settings.agent.schedules.find((s) => scheduleDue(s, now));
+  const due = settings.agent.schedules.find((s) => !submittingSchedules.has(s.id)
+    && Date.now() - (scheduleFailures.get(s.id) ?? 0) > 15 * 60_000 && scheduleDue(s, now));
   if (!due) return;
-  const day = now.toISOString().slice(0, 10);
-  settings.agent = { ...settings.agent, schedules: settings.agent.schedules.map((s) => (s.id === due.id ? { ...s, lastRun: day } : s)) };
-  saveSettings();
+  const day = localDay(now);
   const cap = settings.agent.dailyCapUsd;
-  const spent = settings.agent.spend?.date === day ? settings.agent.spend.usd : 0;
-  if (cap > 0 && cap - spent <= 0) return;
+  const spent = settings.agent.spend?.date === now.toISOString().slice(0, 10) ? settings.agent.spend.usd : 0;
+  if (cap > 0 && cap - spent <= 0) {
+    scheduleFailures.set(due.id, Date.now());
+    say("Scheduled task waiting: daily spend cap reached.", 4000);
+    return;
+  }
+  submittingSchedules.add(due.id);
   // The Tasks window runs it: that is where approvals and questions are answered.
-  invoke("submit_inline_task", { task: due.task, scheduled: true }).catch(() => {});
-  say(`Time for my scheduled errand: ${due.task.slice(0, 60)}…`, 3000);
+  try {
+    await invoke("submit_inline_task", { task: due.task, scheduled: true, provider: settings.agent.provider });
+    const latest = readSettings();
+    settings = writeSettings({ agent: { schedules: latest.agent.schedules.map((s) => (s.id === due.id ? { ...s, lastRun: day } : s)) } });
+    savedSettings = structuredClone(settings);
+    say(`Time for my scheduled errand: ${due.task.slice(0, 60)}…`, 3000);
+  } catch (error) {
+    scheduleFailures.set(due.id, Date.now());
+    say(`Scheduled task could not start: ${String(error).slice(0, 80)}`, 6000);
+  } finally {
+    submittingSchedules.delete(due.id);
+  }
 }
 
 // --- update check -------------------------------------------------------------
@@ -2255,51 +2257,36 @@ async function boot() {
   setInterval(tickSchedules, 30_000);
   setTimeout(maybeCheckUpdate, 20_000);
   scheduleFrame();
-  // Show pen trigger once the pet is positioned for the first time
-  el.chatTrigger.hidden = false;
 }
 
 // --- inline chat bar ---------------------------------------------------------
-// A small pen-icon trigger floats below the pet's feet. Clicking it reveals
-// a pill-shaped input; pressing Enter hands the task to the Tasks window,
+// Companion Chat reveals a pill-shaped input. Enter hands the task to Tasks,
 // which owns progress, approvals, and the queue.
 
 /**
- * The companion's ⋯ launcher sits centred below the pet (above it near the
- * bottom of the screen). Put the pen trigger beside it, and the open bar on
- * the far side of that row, so neither covers the launcher.
+ * Place the open bar next to the companion launcher without covering it.
  */
-const LAUNCHER = 32; // .companion-launcher size, kept in sync with companion.css
+const LAUNCHER = 40; // .companion-launcher size, kept in sync with companion.css
 const CHAT_GAP = 6;
 function positionChatBar() {
-  if (state.hidden) return;
+  if (state.hidden || el.chatBar.hidden) return;
   const pet = el.pet.getBoundingClientRect();
   const center = pet.left + pet.width / 2;
   const below = pet.bottom + 9;
   const rowBelow = below + LAUNCHER <= overlayH() - 8;
   const rowTop = rowBelow ? below : Math.max(8, pet.top - LAUNCHER - 10);
 
-  if (!el.chatBar.hidden) {
-    const barW = el.chatBar.offsetWidth || 240;
-    const barH = el.chatBar.offsetHeight || 40;
-    const bx = clamp(center - barW / 2, 4, Math.max(4, overlayW() - barW - 4));
-    const by = rowBelow ? rowTop + LAUNCHER + CHAT_GAP : rowTop - barH - CHAT_GAP;
-    el.chatBar.style.transform = `translate3d(${bx}px, ${clamp(by, 4, Math.max(4, overlayH() - barH - 4))}px, 0)`;
-    el.chatTrigger.hidden = true;
-  } else {
-    const trigW = 28;
-    let tx = center + LAUNCHER / 2 + CHAT_GAP;
-    if (tx + trigW > overlayW() - 4) tx = center - LAUNCHER / 2 - CHAT_GAP - trigW;
-    const ty = rowTop + (LAUNCHER - trigW) / 2;
-    el.chatTrigger.style.transform = `translate3d(${Math.max(4, tx)}px, ${ty}px, 0)`;
-  }
+  const barW = el.chatBar.offsetWidth || 240;
+  const barH = el.chatBar.offsetHeight || 40;
+  const bx = clamp(center - barW / 2, 4, Math.max(4, overlayW() - barW - 4));
+  const by = rowBelow ? rowTop + LAUNCHER + CHAT_GAP : rowTop - barH - CHAT_GAP;
+  el.chatBar.style.transform = `translate3d(${bx}px, ${clamp(by, 4, Math.max(4, overlayH() - barH - 4))}px, 0)`;
 }
 
 function openChatBar() {
   if (state.placing || state.mode !== "free") return;
   companion.close(); // its panel opens in the same spot
   el.chatBar.hidden = false;
-  el.chatTrigger.hidden = true;
   positionChatBar();
   // small delay so the animation plays before focus shifts
   requestAnimationFrame(() => el.chatInput.focus());
@@ -2307,7 +2294,6 @@ function openChatBar() {
 
 function closeChatBar() {
   el.chatBar.hidden = true;
-  el.chatTrigger.hidden = false;
   el.chatInput.value = "";
 }
 
@@ -2324,16 +2310,10 @@ async function submitChat() {
 
 // ---- event wiring ----
 
-el.chatTrigger.addEventListener("click", (e) => {
-  e.stopPropagation();
-  openChatBar();
-});
-
 // The companion panel opens where the bar sits; fold the bar (keeping its text).
 document.getElementById("companion-launcher").addEventListener("click", () => {
   if (el.chatBar.hidden) return;
   el.chatBar.hidden = true;
-  el.chatTrigger.hidden = false;
 });
 
 el.chatChevron.addEventListener("click", (e) => {
@@ -2356,7 +2336,6 @@ el.chatInput.addEventListener("keydown", (e) => {
 // the "cancel placing" right-click handler or pet drag
 el.chatBar.addEventListener("pointerdown", (e) => e.stopPropagation());
 el.chatBar.addEventListener("click",       (e) => e.stopPropagation());
-el.chatTrigger.addEventListener("pointerdown", (e) => e.stopPropagation());
 
 // Debug hook: lets devtools (or a CDP script) poke at live state.
 window.__pet = {

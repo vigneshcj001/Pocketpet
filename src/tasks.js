@@ -20,7 +20,7 @@ const connectionChecks = new Map();
 let current = null; // { id, task, provider, model, startedAt, paused, host }
 let lastTerminal = null;
 let terminalViewed = null;
-const queue = []; // tasks waiting while one runs
+const queue = [...settings.agent.taskQueue]; // persisted; user resumes after restart
 let answeredOnce = false;
 
 const LABEL = {
@@ -59,9 +59,31 @@ function save(patch) {
 
 for (const tab of document.querySelectorAll('[role="tab"]')) {
   tab.addEventListener("click", () => showTab(tab.dataset.tab));
+  const panel = document.querySelector(`[data-panel="${tab.dataset.tab}"]`);
+  if (panel) {
+    panel.id = `panel-${tab.dataset.tab}`;
+    panel.setAttribute("role", "tabpanel");
+    panel.setAttribute("aria-labelledby", `tab-${tab.dataset.tab}`);
+    tab.id = `tab-${tab.dataset.tab}`;
+    tab.setAttribute("aria-controls", panel.id);
+  }
 }
+document.getElementById("tabs").addEventListener("keydown", (event) => {
+  if (!["ArrowRight", "ArrowLeft", "Home", "End"].includes(event.key)) return;
+  const tabs = [...document.querySelectorAll('[role="tab"]')];
+  const index = tabs.indexOf(document.activeElement);
+  if (index < 0) return;
+  event.preventDefault();
+  const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+    : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  tabs[next].focus();
+  tabs[next].click();
+});
 function showTab(name) {
-  for (const tab of document.querySelectorAll('[role="tab"]')) tab.setAttribute("aria-selected", String(tab.dataset.tab === name));
+  for (const tab of document.querySelectorAll('[role="tab"]')) {
+    tab.setAttribute("aria-selected", String(tab.dataset.tab === name));
+    tab.tabIndex = tab.dataset.tab === name ? 0 : -1;
+  }
   for (const panel of document.querySelectorAll("[data-panel]")) panel.hidden = panel.dataset.panel !== name;
   if (name === "history") renderHistory();
   if (name === "providers") renderKeys();
@@ -480,10 +502,21 @@ function renderSchedules() {
     on.addEventListener("input", () => updateSchedule(s.id, { enabled: on.checked }));
     const when = document.createElement("span");
     when.className = "when";
-    when.textContent = `${s.time} · ${s.days}${s.lastRun ? ` · last ${s.lastRun}` : ""}`;
+    when.textContent = `${s.time} · ${s.days} · ${s.catchUp === "run" ? "catch up" : "skip missed"}${s.lastRun ? ` · last ${s.lastRun}` : ""}`;
     const text = document.createElement("span");
     text.className = "grow";
     text.textContent = s.task;
+    const run = document.createElement("button");
+    run.type = "button";
+    run.textContent = "Run now";
+    run.addEventListener("click", () => {
+      if (!submitTask(s.task, false, { scheduled: true })) {
+        $("schedStatus").textContent = $("status").textContent || "Task could not start.";
+        return;
+      }
+      $("schedStatus").textContent = "Task started or queued. Check Run for progress.";
+      showTab("run");
+    });
     const del = document.createElement("button");
     del.type = "button";
     del.textContent = "Remove";
@@ -491,7 +524,7 @@ function renderSchedules() {
       save({ agent: { schedules: settings.agent.schedules.filter((x) => x.id !== s.id) } });
       renderSchedules();
     });
-    li.append(on, when, text, del);
+    li.append(on, when, text, run, del);
     list.append(li);
   }
 }
@@ -504,7 +537,7 @@ function updateSchedule(id, patch) {
 $("schedAdd").addEventListener("click", () => {
   const task = $("schedTask").value.trim();
   if (!task) return;
-  const entry = { id: Math.random().toString(36).slice(2, 10), task, time: $("schedTime").value || "09:00", days: $("schedDays").value, enabled: true, lastRun: "" };
+  const entry = { id: Math.random().toString(36).slice(2, 10), task, time: $("schedTime").value || "09:00", days: $("schedDays").value, catchUp: $("schedCatchUp").value, enabled: true, lastRun: "" };
   save({ agent: { schedules: [...settings.agent.schedules, entry] } });
   $("schedTask").value = "";
   renderSchedules();
@@ -588,23 +621,48 @@ $("task").addEventListener("keydown", (e) => {
 });
 
 function submitTask(task, followUp, { scheduled = false } = {}) {
-  if (!task) return;
-  if (current) {
-    if (queue.length >= 3) {
-      $("status").textContent = "Queue is full (3).";
-      return;
+  if (!task) return false;
+  if (!ensureProviderReady()) return false;
+  if (!current) {
+    settings = readSettings();
+    if (settings.agent.dailyCapUsd > 0 && spentToday() >= settings.agent.dailyCapUsd) {
+      $("status").textContent = "Daily spend cap reached — raise it under Limits & sites.";
+      return false;
     }
-    queue.push({ task, followUp: false, scheduled });
+  }
+  if (current) {
+    if (queue.length >= 20) {
+      $("status").textContent = "Queue is full (20). Remove a task before adding another.";
+      return false;
+    }
+    queue.push({ id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, task, scheduled });
+    persistQueue();
     $("task").value = "";
     renderQueue();
-    return;
+    return true;
   }
   startTask(task, followUp, { scheduled });
+  return true;
+}
+
+function ensureProviderReady() {
+  if (!providers.length) return true; // provider list still loading
+  const selected = providerInfo();
+  if (!selected.needs_key || selected.has_key) return true;
+  $("status").textContent = `Save and test an API key for ${LABEL[selected.id] ?? selected.id} before starting.`;
+  paintReadiness();
+  $("setupProvider").focus();
+  return false;
+}
+
+function persistQueue() {
+  save({ agent: { taskQueue: queue } });
 }
 
 function renderQueue() {
   const q = $("queue");
   q.hidden = queue.length === 0;
+  $("resumeQueue").hidden = queue.length === 0 || Boolean(current);
   q.innerHTML = "";
   queue.forEach((item, i) => {
     const li = document.createElement("li");
@@ -617,6 +675,7 @@ function renderQueue() {
     del.textContent = "Remove";
     del.addEventListener("click", () => {
       queue.splice(i, 1);
+      persistQueue();
       renderQueue();
     });
     li.append(t, del);
@@ -624,8 +683,24 @@ function renderQueue() {
   });
 }
 
-async function startTask(task, followUp = false, { scheduled = false } = {}) {
-  if (!task || current) return;
+$("resumeQueue").addEventListener("click", () => {
+  if (current || !queue.length) return;
+  if (!ensureProviderReady()) return;
+  const next = queue.shift();
+  persistQueue();
+  renderQueue();
+  startTask(next.task, false, { scheduled: next.scheduled, queuedItem: next });
+});
+
+async function startTask(task, followUp = false, { scheduled = false, queuedItem = null } = {}) {
+  const restoreQueuedItem = () => {
+    if (!queuedItem) return;
+    queue.unshift(queuedItem);
+    persistQueue();
+    renderQueue();
+  };
+  if (!task || current) { restoreQueuedItem(); return; }
+  if (!ensureProviderReady()) { restoreQueuedItem(); return; }
   lastTerminal = null;
   terminalViewed = null;
   settings = readSettings();
@@ -633,6 +708,7 @@ async function startTask(task, followUp = false, { scheduled = false } = {}) {
   const budget = cap > 0 ? Math.max(0, cap - spentToday()) : 0;
   if (cap > 0 && budget <= 0) {
     $("status").textContent = "Daily spend cap reached — raise it under Limits & sites.";
+    restoreQueuedItem();
     return;
   }
   const provider = $("provider").value;
@@ -640,6 +716,7 @@ async function startTask(task, followUp = false, { scheduled = false } = {}) {
   // The overlay recognises scheduled runs by this prefix (completion toast).
   const id = `${scheduled ? "sched-" : ""}${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   current = { id, task, provider, model, startedAt: Date.now(), paused: false, host: "" };
+  renderQueue();
   $("log").innerHTML = "";
   $("answerCard").hidden = true;
   $("answer").textContent = "";
@@ -689,6 +766,7 @@ $("pause").addEventListener("click", () => {
 });
 $("kill").addEventListener("click", () => {
   queue.length = 0;
+  persistQueue();
   renderQueue();
   invoke("agent_kill").catch(() => {});
 });
@@ -773,11 +851,13 @@ function finish(status, text) {
     if (settings.agent.speak) speak(text);
   }
   acknowledgeVisibleTask();
-  if (queue.length) {
+  if (queue.length && ensureProviderReady()) {
     const next = queue.shift();
-    renderQueue();
+    persistQueue();
     $("task").value = next.task;
-    setTimeout(() => startTask(next.task, false, { scheduled: next.scheduled }), 400);
+    startTask(next.task, false, { scheduled: next.scheduled, queuedItem: next });
+  } else {
+    renderQueue();
   }
 }
 
@@ -839,6 +919,7 @@ listen("pet://task", ({ payload }) => {
   if (kind === "killed") {
     // The kill switch stops everything: queued tasks must not start afterwards.
     queue.length = 0;
+    persistQueue();
     renderQueue();
     if (current) finish("cancelled", "Stopped by the kill switch.");
     logLine("killed", text);
@@ -996,7 +1077,15 @@ function drainTaskIntents() {
         $("task").value = task;
         $("followUp").checked = false;
         autosize();
-        submitTask(task, false, { scheduled: intent.scheduled === true });
+        if (!submitTask(task, false, { scheduled: intent.scheduled === true }) && intent.scheduled === true) {
+          const reason = $("status").textContent || "Scheduled task could not start.";
+          const latest = readSettings();
+          save({ tasks: [...latest.tasks, {
+            id: `sched-rejected-${Date.now()}`, at: Date.now(), task,
+            provider: latest.agent.provider, model: "", status: "error", answer: reason,
+          }].slice(-50) });
+          $("schedStatus").textContent = `${reason} Use Run now to retry.`;
+        }
       }
     }
   }).catch((error) => {
@@ -1070,6 +1159,12 @@ function renderHistory() {
     );
     meta.append(tools);
     li.append(title, meta);
+    if (t.status === "error" && t.answer) {
+      const reason = document.createElement("div");
+      reason.className = "hint";
+      reason.textContent = t.answer;
+      li.append(reason);
+    }
     li.addEventListener("click", () => open(t));
     list.append(li);
   });
@@ -1189,6 +1284,8 @@ listen("pet://compose", consumeComposeRequest);
 window.addEventListener("focus", consumeComposeRequest);
 listen("pet://settings", () => { settings = readSettings(); paintCompanion(); });
 paintCompanion();
+renderQueue();
+if (queue.length) $("status").textContent = `${queue.length} queued task${queue.length === 1 ? "" : "s"} saved. Resume when ready.`;
 Promise.all([loadProviders(), taskIntentListener]).then(() => {
   consumeComposeRequest();
   taskIntentsReady = true;

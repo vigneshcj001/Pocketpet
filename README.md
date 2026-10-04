@@ -82,8 +82,9 @@ The task window uses the same pet and colour, with starting, thinking and comple
   all rebindable; speech-bubble size and duration are adjustable.
 - **Battery-friendly.** Drops to 15 fps and scans windows less when hidden,
   asleep, or in low-power mode.
-- **Backup & restore.** Export everything to a JSON file and import it on
-  another machine.
+- **Backup & restore.** Export settings, pets, progress, task history, schedules,
+  and waiting tasks to JSON. API keys, saved memory, logs, and browser sign-ins
+  stay on this machine.
 - **Ask me to do something.** A task agent: type (or speak) an errand and the
   pet runs it — web search, page reading, and a real browser window it drives
   itself (its own profile, separate from yours). It plans in steps, narrates,
@@ -231,7 +232,8 @@ install PocketPet like any other app.
 Pushing source to `main` does not replace an installed app or publish a new
 download. Install the newly built installer and restart PocketPet. For public
 updates, commit matching versions in `Cargo.toml`, `Cargo.lock`, and
-`tauri.conf.json`, then push a new matching `v*` tag. See the
+`tauri.conf.json`, then push a new matching `v*` tag. A public Windows release
+also needs the signing secrets described in the release steps. See the
 [release steps](docs/08_DevOps/CI_CD.md). Settings → About & updates shows the
 installed version and build so you can confirm which code is running.
 

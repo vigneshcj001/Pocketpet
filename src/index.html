@@ -53,23 +53,7 @@
       <!-- Drawn over a caption button while the pet is pressing it. -->
       <div id="target-ring" class="target-ring" hidden></div>
 
-      <!-- Inline chat bar: pen trigger ➜ pill input ➜ Enter sends task -->
-      <button
-        type="button"
-        id="chat-trigger"
-        class="chat-trigger"
-        title="Ask me something"
-        aria-label="Open inline chat"
-        hidden
-      >
-        <!-- pen / edit icon -->
-        <svg viewBox="0 0 20 20" width="13" height="13" fill="none"
-             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-             aria-hidden="true">
-          <path d="M14.5 2.5a2.121 2.121 0 0 1 3 3L6 17l-4 1 1-4 11.5-11.5z"/>
-        </svg>
-      </button>
-
+      <!-- Inline chat bar opens from companion launcher. -->
       <div id="chat-bar" class="chat-bar" hidden role="group" aria-label="Ask the pet">
         <!-- chevron/collapse -->
         <button type="button" id="chat-chevron" class="chat-icon-btn"

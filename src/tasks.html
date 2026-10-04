@@ -78,6 +78,7 @@
             <span class="hint" id="status"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> to go</span>
           </div>
           <ol id="queue" class="queue" hidden></ol>
+          <button type="button" id="resumeQueue" hidden>Resume queued tasks</button>
         </div>
 
         <!-- Asked something, or waiting for approval. Sits right under the
@@ -156,8 +157,15 @@
               </select>
             </label>
           </div>
+          <label>When PocketPet was closed at that time
+            <select id="schedCatchUp">
+              <option value="skip">Skip missed run</option>
+              <option value="run">Run when I return</option>
+            </select>
+          </label>
           <button type="button" id="schedAdd" class="primary">Add schedule</button>
           <ul id="schedList" class="list schedules"></ul>
+          <p class="hint" id="schedStatus" role="status" aria-live="polite"></p>
         </div>
       </section>
 

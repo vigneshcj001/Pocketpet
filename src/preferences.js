@@ -26,7 +26,7 @@ export const DEFAULTS = {
     browser: true, allowedSites: [], dailyCapUsd: 2, speak: false, voice: true,
     spend: { date: "", usd: 0 },
     purchaseCap: 0, digestModel: "", stream: true, siteRules: {}, voiceEngine: "windows",
-    schedules: [], updateCheck: true, lastUpdateCheck: 0,
+    schedules: [], taskQueue: [], updateCheck: true, lastUpdateCheck: 0,
   },
   /** Recent tasks, newest last. */
   tasks: [],
@@ -165,10 +165,15 @@ export function normalizeSettings(input) {
       task: shortText(s.task, 600),
       time: time(s.time, "09:00"),
       days: choice(s.days, ["daily", "weekdays", "weekends"], "daily"),
+      catchUp: choice(s.catchUp, ["skip", "run"], "skip"),
       enabled: typeof s.enabled === "boolean" ? s.enabled : true,
       lastRun: shortText(s.lastRun, 10),
     };
   }).filter((s) => s.task);
+  next.agent.taskQueue = (Array.isArray(agent.taskQueue) ? agent.taskQueue : []).slice(0, 20).map((value) => {
+    const item = object(value);
+    return { id: shortText(item.id, 40), task: shortText(item.task, 2000), scheduled: item.scheduled === true };
+  }).filter((item) => item.id && item.task);
   for (const id of AGENT_PROVIDERS) {
     const model = shortText(object(agent.models)[id], 120);
     if (model) next.agent.models[id] = model;

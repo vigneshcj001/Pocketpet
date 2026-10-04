@@ -24,7 +24,7 @@ export const ICONS = {
 };
 export const icon = (name) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
 
-export function createCompanion({ invoke, listen, getPetElement, getQuiet, onError }) {
+export function createCompanion({ invoke, listen, getPetElement, getQuiet, onError, onChat }) {
   const root = document.getElementById("companion");
   const launcher = document.getElementById("companion-launcher");
   const panel = document.getElementById("companion-panel");
@@ -58,7 +58,7 @@ export function createCompanion({ invoke, listen, getPetElement, getQuiet, onErr
     }
   };
   for (const [name, label, description, action] of [
-    ["compose", "Chat", "Start a new chat", () => open("chat")],
+    ["compose", "Chat", "Start a new chat", () => { controlsOpen = false; paint(); onChat(); }],
     ["voice", "Voice", "Use voice input", () => open("voice")],
     ["details", "Details", "Open task details", () => open()],
   ]) {

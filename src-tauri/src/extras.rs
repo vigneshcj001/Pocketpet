@@ -189,6 +189,7 @@ pub fn clipboard_text() -> Option<String> {
 
 // --- updates ------------------------------------------------------------------
 // GitHub Releases is the update feed: the newest release's `*-setup.exe` asset.
+use sha2::{Digest, Sha256};
 
 const RELEASES_API: &str = "https://api.github.com/repos/vigneshcj001/Pocketpet/releases/latest";
 const RELEASE_DOWNLOADS: &str = "https://github.com/vigneshcj001/Pocketpet/releases/download/";
@@ -199,7 +200,14 @@ pub struct UpdateInfo {
     pub latest: String,
     pub available: bool,
     pub url: String,
+    pub sha256: String,
     pub notes: String,
+}
+
+fn release_digest(asset: &serde_json::Value) -> Option<String> {
+    let digest = asset.get("digest")?.as_str()?.strip_prefix("sha256:")?;
+    (digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .then(|| digest.to_ascii_lowercase())
 }
 
 fn version_tuple(v: &str) -> (u64, u64, u64) {
@@ -212,22 +220,23 @@ pub async fn check_update() -> Result<UpdateInfo, String> {
     let client = reqwest::Client::builder().user_agent("PocketPet").build().map_err(|e| e.to_string())?;
     let resp = client.get(RELEASES_API).send().await.map_err(|e| e.to_string())?;
     if resp.status().as_u16() == 404 {
-        return Ok(UpdateInfo { current: current.clone(), latest: current, available: false, url: String::new(), notes: "No releases published yet.".into() });
+        return Ok(UpdateInfo { current: current.clone(), latest: current, available: false, url: String::new(), sha256: String::new(), notes: "No releases published yet.".into() });
     }
     let v: serde_json::Value = resp.error_for_status().map_err(|e| e.to_string())?.json().await.map_err(|e| e.to_string())?;
     let latest = v.get("tag_name").and_then(|t| t.as_str()).unwrap_or("").to_string();
-    let url = v
+    let asset = v
         .get("assets")
         .and_then(|a| a.as_array())
         .into_iter()
         .flatten()
-        .filter_map(|a| a.get("browser_download_url").and_then(|u| u.as_str()))
-        .find(|u| u.ends_with("-setup.exe"))
-        .unwrap_or("")
-        .to_string();
+        .find(|a| a.get("browser_download_url").and_then(|u| u.as_str()).is_some_and(|u| u.ends_with("-setup.exe")));
+    let url = asset.and_then(|a| a.get("browser_download_url").and_then(|u| u.as_str())).unwrap_or("").to_string();
+    let sha256 = asset.and_then(release_digest).unwrap_or_default();
     let notes = v.get("body").and_then(|b| b.as_str()).unwrap_or("").chars().take(1500).collect();
-    let available = !latest.is_empty() && !url.is_empty() && version_tuple(&latest) > version_tuple(&current);
-    Ok(UpdateInfo { current, latest, available, url, notes })
+    let newer = version_tuple(&latest) > version_tuple(&current);
+    let available = newer && !url.is_empty() && !sha256.is_empty();
+    let notes = if newer && sha256.is_empty() { "Release has no SHA-256 digest. Download it manually from GitHub Releases.".into() } else { notes };
+    Ok(UpdateInfo { current, latest, available, url, sha256, notes })
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -239,12 +248,15 @@ struct UpdateProgress {
 
 /// Stream the installer to %TEMP%, reporting actual bytes received. Only a
 /// completed download becomes an executable; the caller opens it and exits.
-pub async fn download_update(url: &str, app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+pub async fn download_update(url: &str, expected_sha256: &str, app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     use std::io::Write;
     use tauri::Emitter;
     // Only our own release assets; GitHub redirects these to its CDN itself.
     if !url.starts_with(RELEASE_DOWNLOADS) || url.contains("..") || url.to_ascii_lowercase().contains("%2e") || !url.ends_with("-setup.exe") {
         return Err("Refusing to download an installer from outside GitHub.".into());
+    }
+    if expected_sha256.len() != 64 || !expected_sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("Release installer has no valid SHA-256 digest.".into());
     }
     let client = reqwest::Client::builder().user_agent("PocketPet")
         .connect_timeout(std::time::Duration::from_secs(20))
@@ -260,10 +272,12 @@ pub async fn download_update(url: &str, app: &tauri::AppHandle) -> Result<std::p
     let result = async {
         let mut file = std::fs::File::create(&partial).map_err(|e| e.to_string())?;
         let mut downloaded = 0_u64;
+        let mut hasher = Sha256::new();
         let mut reported = std::time::Instant::now();
         let _ = app.emit("pet://update-progress", UpdateProgress { downloaded, total, done: false });
         while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
             file.write_all(&chunk).map_err(|e| e.to_string())?;
+            hasher.update(&chunk);
             downloaded += chunk.len() as u64;
             if reported.elapsed() >= std::time::Duration::from_millis(100) {
                 let _ = app.emit("pet://update-progress", UpdateProgress { downloaded, total, done: false });
@@ -275,6 +289,9 @@ pub async fn download_update(url: &str, app: &tauri::AppHandle) -> Result<std::p
         }
         if total.is_some_and(|expected| downloaded != expected) {
             return Err("The installer download was incomplete. Please try again.".to_string());
+        }
+        if format!("{:x}", hasher.finalize()) != expected_sha256.to_ascii_lowercase() {
+            return Err("Installer SHA-256 digest did not match GitHub release metadata.".into());
         }
         file.sync_all().map_err(|e| e.to_string())?;
         drop(file);
@@ -290,11 +307,19 @@ pub async fn download_update(url: &str, app: &tauri::AppHandle) -> Result<std::p
 
 #[cfg(test)]
 mod update_tests {
-    use super::version_tuple;
+    use super::{release_digest, version_tuple};
     #[test]
     fn versions_compare_numerically() {
         assert!(version_tuple("v0.2.0") > version_tuple("0.1.9"));
         assert!(version_tuple("1.0.0") > version_tuple("v0.10.5"));
         assert_eq!(version_tuple("v0.1.0"), version_tuple("0.1.0"));
+    }
+
+    #[test]
+    fn release_digest_requires_sha256() {
+        let digest = "a".repeat(64);
+        assert_eq!(release_digest(&serde_json::json!({ "digest": format!("sha256:{digest}") })), Some(digest));
+        assert_eq!(release_digest(&serde_json::json!({ "digest": "sha256:bad" })), None);
+        assert_eq!(release_digest(&serde_json::json!({ "digest": "sha512:bad" })), None);
     }
 }

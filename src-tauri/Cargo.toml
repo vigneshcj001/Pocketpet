@@ -1,6 +1,6 @@
 [package]
 name = "pocketpet"
-version = "0.2.0"
+version = "0.2.1"
 description = "PocketPet - desktop pet that follows your cursor and clicks your window buttons"
 authors = ["vigneshcj001"]
 edition = "2021"
@@ -17,6 +17,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 base64 = "0.22"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream"] }
 tokio-tungstenite = "0.26"

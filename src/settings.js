@@ -39,12 +39,32 @@ for (const tab of document.querySelectorAll('[role="tab"]')) {
     showTab(tab.dataset.tab);
   });
   // Lets the search view label each panel it pulls cards from.
-  document.querySelector(`[data-panel="${tab.dataset.tab}"]`)?.setAttribute("data-title", tab.textContent);
+  const panel = document.querySelector(`[data-panel="${tab.dataset.tab}"]`);
+  if (panel) {
+    panel.dataset.title = tab.textContent;
+    panel.id = `panel-${tab.dataset.tab}`;
+    panel.setAttribute("role", "tabpanel");
+    panel.setAttribute("aria-labelledby", `tab-${tab.dataset.tab}`);
+    tab.id = `tab-${tab.dataset.tab}`;
+    tab.setAttribute("aria-controls", panel.id);
+  }
 }
+document.getElementById("tabs").addEventListener("keydown", (event) => {
+  if (!["ArrowRight", "ArrowLeft", "Home", "End"].includes(event.key)) return;
+  const tabs = [...document.querySelectorAll('[role="tab"]')];
+  const index = tabs.indexOf(document.activeElement);
+  if (index < 0) return;
+  event.preventDefault();
+  const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+    : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  tabs[next].focus();
+  tabs[next].click();
+});
 
 function showTab(name) {
   for (const tab of document.querySelectorAll('[role="tab"]')) {
     tab.setAttribute("aria-selected", String(tab.dataset.tab === name));
+    tab.tabIndex = tab.dataset.tab === name ? 0 : -1;
   }
   for (const panel of document.querySelectorAll("[data-panel]")) {
     panel.hidden = panel.dataset.panel !== name;
@@ -701,7 +721,7 @@ $("installUpdate").addEventListener("click", async () => {
     if (!await updateProgressReady) throw new Error("Couldn't prepare download progress. Reopen Settings and try again.");
     localStorage.setItem(PENDING_INSTALL_KEY, JSON.stringify({ fromIdentity: identity, targetVersion: pendingUpdate.latest }));
     // Windows quits into the installer; macOS and Linux return where the download went.
-    const message = await invoke("install_update", { url: pendingUpdate.url });
+    const message = await invoke("install_update", { url: pendingUpdate.url, sha256: pendingUpdate.sha256 });
     if (message) {
       $("updateStatus").textContent = message;
       $("updateProgress").max = 1;
@@ -806,6 +826,32 @@ $("importBackup").addEventListener("click", async () => {
     status.textContent = "Backup restored. Provider URLs and site rules on this computer were kept.";
   } catch (err) {
     status.textContent = `Import failed: ${err.message ?? err}`;
+  }
+});
+
+$("clearTaskHistory").addEventListener("click", () => {
+  if (!confirm("Clear saved task history? Existing backup files will not change.")) return;
+  save({ tasks: [] });
+  $("dataStatus").textContent = "Task history cleared.";
+});
+
+$("clearSavedMemory").addEventListener("click", async () => {
+  if (!confirm("Clear facts PocketPet remembers? Existing backup files will not change.")) return;
+  try {
+    await invoke("memory_write", { text: "" });
+    $("dataStatus").textContent = "Saved memory cleared.";
+  } catch (error) {
+    $("dataStatus").textContent = `Could not clear memory: ${error}`;
+  }
+});
+
+$("clearTaskLogs").addEventListener("click", async () => {
+  if (!confirm("Permanently delete PocketPet task and crash logs from this computer?")) return;
+  try {
+    const count = await invoke("clear_logs");
+    $("dataStatus").textContent = `${count} log file${count === 1 ? "" : "s"} cleared.`;
+  } catch (error) {
+    $("dataStatus").textContent = `Could not clear logs: ${error}`;
   }
 });
 

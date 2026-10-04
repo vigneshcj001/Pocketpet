@@ -492,6 +492,23 @@ button:hover {
   .pet-preview .p-eye { animation: none; }
 }
 
+button:focus-visible, input:focus-visible, select:focus-visible,
+textarea:focus-visible, summary:focus-visible, [role="radio"]:focus-visible {
+  outline: 3px solid #1375ac;
+  outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+  .card, .pet-option, [role="tab"], button, input, select, textarea {
+    border: 1px solid CanvasText;
+    forced-color-adjust: auto;
+  }
+  [role="tab"][aria-selected="true"], [role="radio"][aria-checked="true"] {
+    outline: 2px solid Highlight;
+    outline-offset: 1px;
+  }
+}
+
 kbd {
   font: inherit;
   padding: 1px 5px;

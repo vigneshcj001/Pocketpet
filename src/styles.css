@@ -621,15 +621,11 @@ body {
 
 /* ============================================================
    Inline chat bar
-   The trigger (pen icon) sits below the pet's feet.
-   Clicking it opens the pill-shaped input bar in the same spot.
-   Both are positioned every frame via translate3d() in JS so
-   they follow the pet; position:absolute/top:0/left:0 is the
-   base; pointer-events:auto is required for the overlay.
+   The companion launcher opens the pill-shaped input. JS positions
+   it beside the pet; pointer-events:auto makes it interactive.
    ============================================================ */
 
 /* colour tokens – reuse what the bubble already uses */
-.chat-trigger,
 .chat-bar {
   --cb-bg:      rgba(255, 255, 255, 0.97);
   --cb-ink:     #2c2438;
@@ -640,13 +636,11 @@ body {
   --cb-shadow:  0 4px 18px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(0, 0, 0, 0.06);
 }
 
-.chat-trigger[hidden],
 .chat-bar[hidden] {
   display: none;
 }
 
 @media (prefers-color-scheme: dark) {
-  .chat-trigger,
   .chat-bar {
     --cb-bg:      rgba(28, 24, 36, 0.97);
     --cb-ink:     #f4f1ef;
@@ -656,44 +650,6 @@ body {
     --cb-accent:  #e8963c;
     --cb-shadow:  0 4px 18px rgba(0, 0, 0, 0.50), 0 0 0 1px rgba(255, 255, 255, 0.08);
   }
-}
-
-/* ---- pen / trigger button ---- */
-
-.chat-trigger {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  border: 1.5px solid var(--cb-border);
-  background: var(--cb-bg);
-  color: var(--cb-ink);
-  cursor: pointer;
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: var(--cb-shadow);
-  transition: box-shadow 0.15s;
-  will-change: transform;
-  z-index: 6;
-  /* start invisible; JS reveals it after boot */
-}
-
-.chat-trigger:hover {
-  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.28), 0 0 0 1px var(--cb-border);
-}
-
-.chat-trigger:active {
-  opacity: 0.8;
-}
-
-/* keep the SVG inside crisp */
-.chat-trigger svg {
-  display: block;
-  flex: 0 0 auto;
 }
 
 /* ---- pill bar ---- */
@@ -721,6 +677,9 @@ body {
 @keyframes chat-bar-in {
   from { opacity: 0; }
   to   { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-bar { animation: none; }
 }
 
 /* ---- text input ---- */
@@ -775,6 +734,11 @@ body {
   opacity: 0.65;
 }
 
+.chat-icon-btn:focus-visible, .chat-input:focus-visible {
+  outline: 3px solid #1375ac;
+  outline-offset: 2px;
+}
+
 /* send button: filled accent circle */
 .chat-send-btn {
   border: none;
@@ -790,7 +754,6 @@ body {
 
 /* ---- hide both while in quiet / focus mode ---- */
 
-#stage.quiet .chat-trigger,
 #stage.quiet .chat-bar {
   display: none !important;
 }

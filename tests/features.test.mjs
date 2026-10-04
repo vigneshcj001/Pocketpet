@@ -3,8 +3,28 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { focusActive, inQuietHours, hungerAfter, nearestMonitor, insetBounds, exclusionRect, constrainPoint } from "../src/behavior.js";
 import { normalizeSettings, parseBackup, keepLocalTrust, recordActivity, readSettings, accessoryUnlocked } from "../src/preferences.js";
+import { localDay, scheduleDue } from "../src/schedule.js";
 
 const makeDate = (h, m) => new Date(2026, 8, 17, h, m);
+
+test("schedules use local days and obey missed-run policy", () => {
+  const at = makeDate(9, 5);
+  const schedule = { enabled: true, time: "09:00", days: "daily", lastRun: "", catchUp: "skip" };
+  assert.equal(localDay(at), "2026-09-17");
+  assert.equal(scheduleDue(schedule, at), true);
+  assert.equal(scheduleDue({ ...schedule, lastRun: localDay(at) }, at), false);
+  assert.equal(scheduleDue(schedule, makeDate(9, 10)), false);
+  assert.equal(scheduleDue({ ...schedule, catchUp: "run" }, makeDate(20, 0)), true);
+  assert.equal(scheduleDue({ ...schedule, days: "weekends" }, at), false);
+});
+
+test("waiting task queue survives settings normalization with bounded entries", () => {
+  const queued = Array.from({ length: 24 }, (_, i) => ({ id: `task-${i}`, task: `Task ${i}`, scheduled: i === 0 }));
+  const agent = normalizeSettings({ agent: { taskQueue: queued, schedules: [{ id: "morning", task: "Read news", catchUp: "run" }] } }).agent;
+  assert.equal(agent.taskQueue.length, 20);
+  assert.deepEqual(agent.taskQueue[0], queued[0]);
+  assert.equal(agent.schedules[0].catchUp, "run");
+});
 
 test("focus hours that cross midnight have exact start and end boundaries", () => {
   assert.equal(inQuietHours("22:00", "06:00", makeDate(23, 0)), true);
@@ -68,16 +88,18 @@ test("friendship prizes unlock for the pet that earned them", () => {
   assert.equal(accessoryUnlocked(settings, "cat", "🎩"), true);
 });
 
-test("every overlay and settings control referenced by JavaScript exists in its page", () => {
+test("every overlay, settings, and tasks control referenced by JavaScript exists in its page", () => {
   const files = [
     ["../src/main.js", "../src/index.html", /document\.getElementById\("([^"]+)"\)/g],
     ["../src/settings.js", "../src/settings.html", /\$\("([^"]+)"\)/g],
+    ["../src/tasks.js", "../src/tasks.html", /\$\("([^"]+)"\)/g],
   ];
   for (const [scriptPath, htmlPath, pattern] of files) {
     const script = readFileSync(new URL(scriptPath, import.meta.url), "utf8");
     const html = readFileSync(new URL(htmlPath, import.meta.url), "utf8");
     for (const match of script.matchAll(pattern)) {
-      assert.ok(html.includes(`id="${match[1]}"`), `${scriptPath} refers to missing ${match[1]}`);
+      assert.ok(html.includes(`id="${match[1]}"`) || script.includes(`.id = "${match[1]}"`),
+        `${scriptPath} refers to missing ${match[1]}`);
     }
   }
 });

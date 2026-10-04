@@ -239,12 +239,22 @@
       <section data-panel="backup" hidden>
         <div class="card">
           <h2>Backup &amp; restore</h2>
-          <p class="hint">Everything: settings, custom pets, names, colours, progress and journal.</p>
+          <p class="hint">Includes settings, custom pets, progress, task history, schedules, and waiting tasks. Excludes API keys, saved memory, logs, and browser sign-ins.</p>
           <div class="pair">
             <button type="button" id="exportBackup">Export to file…</button>
             <button type="button" id="importBackup">Import from file…</button>
           </div>
           <p class="hint" id="backupStatus"></p>
+        </div>
+        <div class="card">
+          <h2>Stored task data</h2>
+          <p class="hint">Clear each item separately. Task history also appears in backups; saved memory and logs stay on this computer.</p>
+          <div class="pair">
+            <button type="button" id="clearTaskHistory">Clear task history</button>
+            <button type="button" id="clearSavedMemory">Clear saved memory</button>
+            <button type="button" id="clearTaskLogs">Clear logs</button>
+          </div>
+          <p class="hint" id="dataStatus" role="status" aria-live="polite"></p>
         </div>
         <div class="card danger">
           <h2>Reset</h2>

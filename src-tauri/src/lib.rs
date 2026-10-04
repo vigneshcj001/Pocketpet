@@ -601,6 +601,30 @@ fn open_logs_folder() -> bool {
     open_path(&dir.display().to_string())
 }
 
+fn clear_log_dir(dir: &std::path::Path) -> Result<usize, String> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(error.to_string()),
+    };
+    let mut cleared = 0;
+    for entry in entries {
+        let entry = entry.map_err(|error| error.to_string())?;
+        if !entry.file_type().map_err(|error| error.to_string())?.is_file()
+            || entry.path().extension().and_then(|ext| ext.to_str()) != Some("log") { continue; }
+        std::fs::remove_file(entry.path()).map_err(|error| error.to_string())?;
+        cleared += 1;
+    }
+    Ok(cleared)
+}
+
+#[tauri::command]
+fn clear_logs(window: WebviewWindow) -> Result<usize, String> {
+    if window.label() != "settings" { return Err("Only Settings can clear logs.".into()); }
+    let root = agent::data_dir();
+    Ok(clear_log_dir(&root.join("tasks"))? + clear_log_dir(&root.join("logs"))?)
+}
+
 #[tauri::command]
 fn build_identity() -> String {
     format!("PocketPet {} · build {} ({})", env!("CARGO_PKG_VERSION"), env!("POCKETPET_REVISION"), env!("POCKETPET_BUILD_PROFILE"))
@@ -633,8 +657,8 @@ async fn check_update() -> Result<extras::UpdateInfo, String> {
 /// Download the installer, launch it, and quit so it can replace the exe.
 #[cfg(windows)]
 #[tauri::command]
-async fn install_update(url: String, app: AppHandle) -> Result<String, String> {
-    let path = extras::download_update(&url, &app).await?;
+async fn install_update(url: String, sha256: String, app: AppHandle) -> Result<String, String> {
+    let path = extras::download_update(&url, &sha256, &app).await?;
     if !open_path(&path.display().to_string()) {
         return Err("Could not start the installer.".into());
     }
@@ -648,8 +672,8 @@ async fn install_update(url: String, app: AppHandle) -> Result<String, String> {
 /// stays open and says where the update went.
 #[cfg(not(windows))]
 #[tauri::command]
-async fn install_update(url: String, app: AppHandle) -> Result<String, String> {
-    let path = extras::download_update(&url, &app).await?;
+async fn install_update(url: String, sha256: String, app: AppHandle) -> Result<String, String> {
+    let path = extras::download_update(&url, &sha256, &app).await?;
     #[cfg(target_os = "linux")]
     let target = {
         use std::os::unix::fs::PermissionsExt;
@@ -714,7 +738,7 @@ fn consume_task_intents(window: WebviewWindow, pending: State<'_, PendingTaskInt
 /// Route inline chat and scheduled errands through Tasks, which owns progress,
 /// approvals and the queue.
 #[tauri::command]
-async fn submit_inline_task(window: WebviewWindow, app: AppHandle, task: String, scheduled: Option<bool>) -> Result<(), String> {
+async fn submit_inline_task(window: WebviewWindow, app: AppHandle, task: String, scheduled: Option<bool>, provider: Option<String>) -> Result<(), String> {
     if window.label() != "overlay" {
         return Err("Only the pet overlay can submit an inline task.".into());
     }
@@ -722,8 +746,14 @@ async fn submit_inline_task(window: WebviewWindow, app: AppHandle, task: String,
     if task.is_empty() || task.chars().count() > 2000 {
         return Err("Task must contain 1–2000 characters.".into());
     }
-    app.state::<PendingTaskIntents>().push(TaskIntent::Run { text: task.to_string(), scheduled: scheduled.unwrap_or(false) });
+    if scheduled == Some(true) {
+        let selected = provider.as_deref().and_then(agent::provider).ok_or("Choose a task provider first.")?;
+        if selected.needs_key && agent::read_key(selected.id).is_none() {
+            return Err(format!("Save an API key for {} in Tasks > Providers & keys.", selected.id));
+        }
+    }
     open_tasks(app.clone()).await?;
+    app.state::<PendingTaskIntents>().push(TaskIntent::Run { text: task.to_string(), scheduled: scheduled.unwrap_or(false) });
     let _ = app.emit_to("tasks", "pet://task-intents", ());
     Ok(())
 }
@@ -1175,6 +1205,7 @@ pub fn run() {
             agent_open_site,
             open_task_log,
             open_logs_folder,
+            clear_logs,
             build_identity,
             diagnostics,
             check_update,
@@ -1269,6 +1300,19 @@ pub fn run() {
 #[cfg(test)]
 mod native_tests {
     use super::*;
+
+    #[test]
+    fn clearing_logs_preserves_other_files() {
+        let dir = std::env::temp_dir().join(format!("pocketpet-log-test-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("task.log"), "log").unwrap();
+        std::fs::write(dir.join("memory.md"), "keep").unwrap();
+        assert_eq!(clear_log_dir(&dir).unwrap(), 1);
+        assert!(!dir.join("task.log").exists());
+        assert_eq!(std::fs::read_to_string(dir.join("memory.md")).unwrap(), "keep");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn task_hotkeys_survive_window_startup_and_are_consumed_once_in_order() {

@@ -124,6 +124,36 @@ jobs:
       - name: Build
         run: cargo tauri build --bundles ${{ matrix.bundles }} ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
         working-directory: src-tauri
+      - name: Sign Windows release installer
+        if: matrix.name == 'windows' && startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_PFX: ${{ secrets.WINDOWS_SIGNING_PFX }}
+          WINDOWS_SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_SIGNING_PFX -or -not $env:WINDOWS_SIGNING_PASSWORD) {
+            throw 'Windows release signing requires WINDOWS_SIGNING_PFX and WINDOWS_SIGNING_PASSWORD secrets.'
+          }
+          $certPath = Join-Path $env:RUNNER_TEMP 'pocketpet-signing.pfx'
+          try {
+            [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_SIGNING_PFX))
+            $password = ConvertTo-SecureString $env:WINDOWS_SIGNING_PASSWORD -AsPlainText -Force
+            $certificate = Import-PfxCertificate -FilePath $certPath -CertStoreLocation Cert:\CurrentUser\My -Password $password
+            if (-not $certificate) { throw 'Could not import Windows signing certificate.' }
+            $kit = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Windows Kits\10\bin'
+            $signtool = Get-ChildItem -Path $kit -Recurse -Filter signtool.exe |
+              Where-Object { $_.FullName -match '\\x64\\' } |
+              Sort-Object FullName -Descending | Select-Object -First 1
+            if (-not $signtool) { throw 'Windows SDK signtool.exe not found.' }
+            $installer = Get-ChildItem 'src-tauri\target\release\bundle\nsis\*-setup.exe' | Select-Object -First 1
+            if (-not $installer) { throw 'Windows installer not found.' }
+            & $signtool.FullName sign /sha1 $certificate.Thumbprint /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $installer.FullName
+            if ($LASTEXITCODE -ne 0) { throw 'Windows installer signing failed.' }
+            & $signtool.FullName verify /pa /v $installer.FullName
+            if ($LASTEXITCODE -ne 0) { throw 'Windows installer signature verification failed.' }
+          } finally {
+            Remove-Item -LiteralPath $certPath -ErrorAction SilentlyContinue
+          }
       - name: Verify the macOS signature
         if: startsWith(matrix.name, 'macos')
         # The bundler deletes bundle/macos/PocketPet.app after building a
