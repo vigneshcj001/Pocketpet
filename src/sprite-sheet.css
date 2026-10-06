@@ -1,0 +1,12 @@
+.custom-sheet { display: block; position: relative; width: 100%; height: 100%; overflow: hidden; }
+.custom-sheet-img { display: block; width: 400%; max-width: none; height: 100%; object-fit: fill; transform: translateX(0); -webkit-user-drag: none; }
+.pet[data-state="walk"] .custom-sheet-img,
+.pet[data-state="run"] .custom-sheet-img,
+.pet[data-state="hop"] .custom-sheet-img { transform: translateX(-25%); }
+.pet[data-state="sleep"] .custom-sheet-img { transform: translateX(-50%); }
+.pet[data-state="happy"] .custom-sheet-img,
+.pet[data-state="celebrate"] .custom-sheet-img { transform: translateX(-75%); }
+.pet[data-state="walk"] .custom-sheet,
+.pet[data-state="run"] .custom-sheet { animation: custom-step .42s ease-in-out infinite alternate; }
+@keyframes custom-step { to { translate: 0 -3px; } }
+@media (prefers-reduced-motion: reduce) { .pet .custom-sheet { animation: none !important; } }

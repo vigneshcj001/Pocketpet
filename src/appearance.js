@@ -60,7 +60,9 @@ export function tintedSvg(p, color) {
 }
 
 /** Markup for a custom (raster) pet's sprite. */
-export const customImageSvg = (image) => `<img class="custom-img" src="${image}" alt="" draggable="false" />`;
+export const customImageSvg = (image, frames = 1) => frames === 4
+  ? `<span class="custom-sheet"><img class="custom-sheet-img" src="${image}" alt="" draggable="false" /></span>`
+  : `<img class="custom-img" src="${image}" alt="" draggable="false" />`;
 
 /** Fill `container` with emoji accessory spans positioned by styles.css / settings.css. */
 export function renderAccessoryNodes(container, items) {

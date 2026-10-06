@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PocketPet settings</title>
-    <link rel="stylesheet" href="settings.css" /><link rel="stylesheet" href="droplet.css" />
+    <link rel="stylesheet" href="settings.css" /><link rel="stylesheet" href="droplet.css" /><link rel="stylesheet" href="sprite-sheet.css" />
   </head>
   <body>
     <!-- Shares localStorage with the overlay (same origin). Every change is
@@ -126,6 +126,10 @@
           <h2>Custom image pets</h2>
           <p class="hint">Any PNG, GIF, JPG or WebP. It is squared, shrunk to 256 px and kept in your settings. Up to 12.</p>
           <button type="button" id="addCustom">Add a picture…</button>
+          <button type="button" id="addCustomSheet">Add 4-frame sprite sheet…</button>
+          <p class="hint">Sheet: four equal square frames in one horizontal PNG, ordered idle, walk, sleep, happy.</p>
+          <button type="button" id="importPetPreset">Import website pet setup…</button>
+          <p id="presetStatus" class="hint" role="status"></p>
           <ul id="customList" class="list"></ul>
         </div>
       </section>
@@ -246,6 +250,17 @@
           </div>
           <p class="hint" id="backupStatus"></p>
         </div>
+        <div class="card" id="appProfilesCard">
+          <h2>Per-app pet modes</h2>
+          <p class="hint">Windows: match foreground executable name. Fullscreen focus setting still wins.</p>
+          <div class="pair">
+            <label>App executable <input id="appProfileName" type="text" maxlength="80" placeholder="zoom.exe" /></label>
+            <label>Mode <select id="appProfileMode"><option value="playful">Playful</option><option value="quiet">Quiet</option><option value="hide">Hidden</option></select></label>
+          </div>
+          <div class="pair"><button type="button" id="appProfileCurrent">Use foreground app</button><button type="button" id="appProfileAdd">Save app rule</button></div>
+          <ul id="appProfileList" class="list"></ul>
+          <p id="appProfileStatus" class="hint" role="status"></p>
+        </div>
         <div class="card">
           <h2>Stored task data</h2>
           <p class="hint">Clear each item separately. Task history also appears in backups; saved memory and logs stay on this computer.</p>
@@ -274,10 +289,12 @@
           <div class="pair">
             <button type="button" id="checkUpdate">Check for updates</button>
             <button type="button" id="installUpdate" hidden class="primary">Download &amp; install</button>
+            <button type="button" id="openRelease">Published releases</button>
           </div>
           <label class="row"><input type="checkbox" id="updateCheck" /> Check once a day and let the pet mention it</label>
           <progress id="updateProgress" class="update-progress" aria-label="Update download progress" hidden></progress>
           <p class="hint" id="updateStatus" role="status"></p>
+          <p class="hint">Local builds and pushes to main do not become public updates until a version tag builds and publishes every installer.</p>
         </div>
         <div class="card">
           <h2>Problems</h2>

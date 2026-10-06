@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="tasks.css" />
     <link rel="stylesheet" href="droplet.css" />
     <link rel="stylesheet" href="companion.css" />
+    <link rel="stylesheet" href="sprite-sheet.css" />
   </head>
   <body class="tasks-companion">
     <!-- "Ask me to do something": a task goes to the Rust agent, which runs an
@@ -110,6 +111,11 @@
             </span>
           </h2>
           <div id="answer" class="answer"></div>
+          <div id="resultCard" class="result-card" hidden>
+            <p id="resultMeta" class="hint"></p>
+            <div id="resultHints"></div>
+            <button type="button" id="resultLog" class="mini">Open audit log</button>
+          </div>
         </div>
 
         <div class="card progress" id="progressCard">
@@ -143,6 +149,15 @@
 
       <!-- ================= Schedules ================= -->
       <section data-panel="schedules" hidden>
+        <div class="card">
+          <h2>Reusable task recipes</h2>
+          <p class="hint">Save a prompt once. Run it now or copy it into a schedule; approval rules still apply.</p>
+          <label class="stack">Name <input id="recipeName" type="text" maxlength="80" placeholder="Morning briefing" /></label>
+          <label class="stack">Task <textarea id="recipeTask" rows="3" maxlength="600" placeholder="Summarise today's top three tech headlines with links."></textarea></label>
+          <button type="button" id="recipeAdd" class="primary">Save recipe</button>
+          <ul id="recipeList" class="list schedules"></ul>
+          <p id="recipeStatus" class="hint" role="status"></p>
+        </div>
         <div class="card">
           <h2>Scheduled tasks</h2>
           <p class="hint">The pet runs these on its own while PocketPet is open and delivers the answer in its bubble and a notification.</p>

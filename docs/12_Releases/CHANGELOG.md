@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.2 (local changes; not published)
+
+- Settings now shows installed build identity beside latest published release and explains tagged-release requirement.
+- Windows foreground-app rules switch pet between playful, quiet, and hidden modes. Fullscreen focus remains higher priority.
+- Saved task recipes can run immediately or fill a schedule. Finished tasks now persist in History with result cards, answer links, mentioned prices/dates, approval counts, and audit-log access.
+- Friendship level and mood respond to interaction count and hunger. Companion pets greet each other when nearby.
+- Custom pets accept four-frame horizontal sprite sheets for idle, walk, sleep, and happy states.
+- Website can send appearance through a `pocketpet://` app link; JSON import remains available. Credentials and trust rules stay local.
+- Website demo hides companion controls behind its launcher.
+
 ## 0.1.0 (unreleased tag; installer built 2026-09-19)
 
 ### 2026-09-19 (website)

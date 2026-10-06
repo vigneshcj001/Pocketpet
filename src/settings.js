@@ -19,6 +19,8 @@ import {
 import { getPet } from "./pets/index.js";
 import { paintPetSprite, customImageSvg, renderAccessoryNodes } from "./appearance.js";
 import { updateConfirmation } from "./update-state.js";
+import { petMood } from "./mood.js";
+import { parsePetPreset, parsePetPresetLink } from "./pet-preset.js";
 
 const { emit, listen } = window.__TAURI__.event;
 const { invoke } = window.__TAURI__.core;
@@ -211,7 +213,46 @@ function fill() {
   paintAvoidPreview();
   renderPets();
   renderCustomList();
+  renderAppProfiles();
 }
+
+function renderAppProfiles() {
+  const list = $("appProfileList");
+  list.replaceChildren();
+  for (const rule of settings.appProfiles) {
+    const li = document.createElement("li");
+    const label = document.createElement("span");
+    label.textContent = `${rule.app} · ${rule.mode}`;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => {
+      save({ appProfiles: settings.appProfiles.filter((item) => item.app !== rule.app) });
+      renderAppProfiles();
+    });
+    li.append(label, remove);
+    list.append(li);
+  }
+  if (!settings.appProfiles.length) list.textContent = "No app rules yet.";
+}
+
+$("appProfileCurrent").addEventListener("click", async () => {
+  const env = await invoke("get_environment").catch(() => null);
+  $("appProfileName").value = env?.active_app || "";
+  $("appProfileStatus").textContent = env?.active_app ? `Found ${env.active_app}. Choose mode, then save.` : "No foreground app found. Enter executable name.";
+});
+$("appProfileAdd").addEventListener("click", () => {
+  const entered = $("appProfileName").value.trim().toLowerCase();
+  const app = entered.endsWith(".exe") ? entered : `${entered}.exe`;
+  if (!/^[a-z0-9][a-z0-9._ -]{0,75}\.exe$/.test(app)) {
+    $("appProfileStatus").textContent = "Enter executable filename, such as zoom.exe.";
+    return;
+  }
+  const mode = $("appProfileMode").value;
+  save({ appProfiles: [...settings.appProfiles.filter((item) => item.app !== app), { app, mode }] });
+  $("appProfileStatus").textContent = `${app} uses ${mode} mode.`;
+  renderAppProfiles();
+});
 
 // --- dependent fields ------------------------------------------------------------
 // Groups marked data-needs="<id>" fade out (and stop taking input) while the
@@ -367,7 +408,7 @@ const baseColor = (id) => getPet(id)?.tint?.[0] ?? "#f5a94c";
 /** Sprite for any pet id, built-in or custom picture. */
 function spriteFor(id) {
   const custom = settings.customPets.find((p) => p.id === id);
-  return custom ? { id, svg: customImageSvg(custom.image) } : getPet(id);
+  return custom ? { id, svg: customImageSvg(custom.image, custom.frames) } : getPet(id);
 }
 
 function renderPreview(id) {
@@ -522,12 +563,69 @@ $("addCustom").addEventListener("click", async () => {
     if (!url) return;
     const image = await shrink(url, 256);
     const id = `custom:${Date.now().toString(36)}`;
-    save({ customPets: [...settings.customPets, { id, name: `My pet ${settings.customPets.length + 1}`, image }] });
+    save({ customPets: [...settings.customPets, { id, name: `My pet ${settings.customPets.length + 1}`, image, frames: 1 }] });
     fill();
   } catch (err) {
     alert(String(err));
   }
 });
+
+$("addCustomSheet").addEventListener("click", async () => {
+  if (settings.customPets.length >= 12) { alert("You already have 12 custom pets. Remove one first."); return; }
+  try {
+    const url = await invoke("pick_image");
+    if (!url) return;
+    const image = await shrinkSheet(url);
+    const id = `custom:${Date.now().toString(36)}`;
+    save({ customPets: [...settings.customPets, { id, name: `Animated pet ${settings.customPets.length + 1}`, image, frames: 4 }] });
+    fill();
+  } catch (error) { alert(String(error)); }
+});
+
+$("importPetPreset").addEventListener("click", async () => {
+  try {
+    const text = await invoke("load_backup");
+    if (!text) { $("presetStatus").textContent = "Import cancelled."; return; }
+    save(parsePetPreset(JSON.parse(text)));
+    fill();
+    $("presetStatus").textContent = "Website pet setup imported.";
+  } catch (error) { $("presetStatus").textContent = `Import failed: ${error.message ?? error}`; }
+});
+
+async function receivePetPresetLink() {
+  try {
+    const link = await invoke("take_pet_preset_link");
+    if (!link) return;
+    save(parsePetPresetLink(link));
+    fill();
+    $("presetStatus").textContent = "Website pet setup applied.";
+    showTab("pets");
+  } catch (error) {
+    $("presetStatus").textContent = `Pet link failed: ${error.message ?? error}`;
+  }
+}
+listen("pet://preset-link", receivePetPresetLink);
+window.addEventListener("focus", receivePetPresetLink);
+receivePetPresetLink();
+
+function shrinkSheet(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const ratio = img.naturalWidth / img.naturalHeight;
+      if (ratio < 3.8 || ratio > 4.2) { reject(new Error("Sprite sheet must have four square frames side by side (4:1 ratio).")); return; }
+      const canvas = document.createElement("canvas");
+      canvas.width = 1024;
+      canvas.height = 256;
+      canvas.getContext("2d").drawImage(img, 0, 0, 1024, 256);
+      const result = canvas.toDataURL("image/png");
+      if (result.length > 1_800_000) { reject(new Error("Sprite sheet too large after resize. Use simpler art or fewer colours.")); return; }
+      resolve(result);
+    };
+    img.onerror = () => reject(new Error("That file could not be read as an image."));
+    img.src = dataUrl;
+  });
+}
 
 /** Centre-crop to a square and resize on a canvas; GIFs lose animation but keep the first frame. */
 function shrink(dataUrl, size) {
@@ -554,6 +652,7 @@ function renderCustomList() {
     const li = document.createElement("li");
     const img = new Image();
     img.src = p.image;
+    if (p.frames === 4) { img.style.objectFit = "cover"; img.style.objectPosition = "left"; }
     const name = document.createElement("input");
     name.type = "text";
     name.value = p.name;
@@ -662,6 +761,7 @@ const installedBuild = invoke("build_identity")
   });
 
 let pendingUpdate = null;
+let releasePage = "https://github.com/vigneshcj001/Pocketpet/releases";
 let updateBusy = false;
 let downloadingUpdate = false;
 function setUpdateBusy(busy) {
@@ -697,10 +797,15 @@ $("checkUpdate").addEventListener("click", async () => {
   try {
     const info = await invoke("check_update");
     pendingUpdate = info.available ? info : null;
+    releasePage = info.latest && info.latest !== info.current
+      ? `https://github.com/vigneshcj001/Pocketpet/releases/tag/${encodeURIComponent(info.latest)}`
+      : "https://github.com/vigneshcj001/Pocketpet/releases";
     $("installUpdate").hidden = !info.available;
-    $("updateStatus").textContent = info.available
-      ? `Version ${info.latest} is available (you have ${info.current}).${info.notes ? " " + info.notes.slice(0, 300) : ""}`
-      : `You're on ${info.current}. ${info.notes || "No newer release."}`;
+    $("updateStatus").textContent = info.notes === "No releases published yet."
+      ? `Installed ${info.current}; no public release exists yet.`
+      : info.available
+        ? `Installed ${info.current}; latest published ${info.latest}. Update ready.${info.notes ? " " + info.notes.slice(0, 300) : ""}`
+        : `Installed ${info.current}; latest published ${info.latest}. ${info.notes || "No newer published build."}`;
     save({ agent: { lastUpdateCheck: Date.now() } });
   } catch (err) {
     $("updateStatus").textContent = `Couldn't check: ${err}`;
@@ -758,6 +863,7 @@ $("resetShortcuts").addEventListener("click", () => {
 function renderDashboard() {
   const id = $("dashPet").value || settings.pet;
   const p = profileFor(settings, id);
+  const mood = petMood(p, id === settings.pet ? settings.hunger : id === settings.companion ? settings.buddyHunger : 0);
   const days = Math.max(1, Math.round((Date.now() - p.firstRun) / 86_400_000));
   const stat = (v, label) => `<div class="stat"><b>${v}</b><span>${label}</span></div>`;
   $("dashSummary").innerHTML = [
@@ -768,6 +874,8 @@ function renderDashboard() {
     stat(p.games, "games"),
     stat(p.wins, "wins"),
     stat(p.breaks, "breaks taken"),
+    stat(`Level ${mood.level}`, "friendship"),
+    stat(mood.mood, "mood"),
     stat(settings.personalities[id] ?? "calm", "personality"),
     stat(`${Math.round(100 - (id === settings.pet ? settings.hunger : id === settings.companion ? settings.buddyHunger : 0))}%`, "full"),
   ].join("");
@@ -828,6 +936,7 @@ $("importBackup").addEventListener("click", async () => {
     status.textContent = `Import failed: ${err.message ?? err}`;
   }
 });
+$("openRelease").addEventListener("click", () => invoke("open_external", { url: releasePage }).catch(() => {}));
 
 $("clearTaskHistory").addEventListener("click", () => {
   if (!confirm("Clear saved task history? Existing backup files will not change.")) return;

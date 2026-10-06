@@ -8,7 +8,6 @@ import {
   milestonesFor,
 } from "./preferences.js";
 import {
-  focusActive,
   hungerAfter,
   nearestMonitor,
   monitorBounds,
@@ -21,6 +20,8 @@ import { createGames, TOYS } from "./games.js";
 import { createCompanion } from "./companion.js";
 import { taskNarration } from "./narration.js";
 import { localDay, scheduleDue } from "./schedule.js";
+import { effectivePetMode } from "./app-profile.js";
+import { petMood } from "./mood.js";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -173,7 +174,7 @@ function getPet(id) {
       emoji: "🖼️",
       food: "🍪",
       paw: { x: 0.7, y: 0.6 },
-      svg: customImageSvg(custom.image),
+      svg: customImageSvg(custom.image, custom.frames),
       lines: GENERIC_LINES,
     };
   }
@@ -221,7 +222,7 @@ const state = {
   windows: [],
   dragging: false,
   hovering: false,
-  env: { fullscreen: false, onBattery: false },
+  env: { fullscreen: false, onBattery: false, activeApp: "" },
 };
 
 const toCssX = (px) => (px - screen.virtual.x) / screen.scale;
@@ -1355,6 +1356,14 @@ function paintHunger() {
   el.hungerFill.style.width = `${100 - v}%`;
   el.hunger.dataset.level = v >= STARVING_AT ? "starving" : v >= HUNGRY_AT ? "hungry" : "ok";
   el.hunger.title = `${petName()}: ${Math.round(100 - v)}% full`;
+  const primary = petMood(profileFor(settings, pet.id), v);
+  el.pet.dataset.mood = primary.mood;
+  el.pet.dataset.friendship = String(primary.level);
+  if (buddy.pet) {
+    const companion = petMood(profileFor(settings, buddy.pet.id), settings.buddyHunger);
+    el.buddy.dataset.mood = companion.mood;
+    el.buddy.dataset.friendship = String(companion.level);
+  }
 }
 
 /** Drop the food at (x, y): it lands on whatever ledge is beneath that point. */
@@ -1553,6 +1562,7 @@ const games = createGames({
 // onto ledges, copy the mood".
 
 const buddy = { pet: null, x: 0, y: 0, vx: 0, vy: 0, facing: 1, anim: "idle", busy: false, hovering: false };
+let lastBuddyGreeting = 0;
 const buddySize = () => SIZE * 0.85;
 
 function mountBuddy(id) {
@@ -1618,6 +1628,26 @@ function stepBuddy(dt, t) {
   buddy.x = kept.x;
   buddy.y = kept.y;
   paintBuddy();
+  maybeBuddyGreeting(t);
+}
+
+function maybeBuddyGreeting(t) {
+  if (!buddy.pet || state.hidden || state.quiet || state.mode !== "free" || state.dragging || state.placing || games.isActive()) return;
+  if (state.anim !== "idle" || buddy.anim !== "idle" || t - lastBuddyGreeting < 120_000) return;
+  const distance = Math.hypot((buddy.x + buddySize() / 2) - footX(), (buddy.y + buddySize() / 2) - (state.y + SIZE / 2));
+  if (distance > SIZE * 1.7 || settings.hunger >= STARVING_AT || settings.buddyHunger >= STARVING_AT) return;
+  lastBuddyGreeting = t;
+  face(buddy.x > state.x ? 1 : -1);
+  buddy.facing = buddy.x > state.x ? -1 : 1;
+  setAnim("happy");
+  setBuddyAnim("happy");
+  spawnHearts(2, (state.x + buddy.x) / 2, Math.min(state.y, buddy.y), SIZE);
+  playPurr();
+  say(`${petName()} and ${petName(buddy.pet.id)} say hello!`, 1700);
+  setTimeout(() => {
+    if (state.anim === "happy" && state.mode === "free") setAnim("idle");
+    if (buddy.anim === "happy" && !buddy.busy) setBuddyAnim("idle");
+  }, 1400);
 }
 
 function paintBuddy() {
@@ -1821,7 +1851,7 @@ async function pollEnvironment() {
   clearTimeout(envTimer);
   try {
     const env = await invoke("get_environment");
-    state.env = { fullscreen: Boolean(env.fullscreen), onBattery: Boolean(env.on_battery) };
+    state.env = { fullscreen: Boolean(env.fullscreen), onBattery: Boolean(env.on_battery), activeApp: String(env.active_app || "").toLowerCase() };
   } catch {
     /* keep the last reading */
   }
@@ -1830,9 +1860,9 @@ async function pollEnvironment() {
 }
 
 function updateFocus() {
-  const active = focusActive(settings, state.env);
-  const wantHide = active && settings.focusAction === "hide";
-  const wantQuiet = active && settings.focusAction === "quiet";
+  const mode = effectivePetMode(settings, state.env);
+  const wantHide = mode === "hide";
+  const wantQuiet = mode === "quiet";
 
   if (wantHide !== state.focusHidden) {
     state.focusHidden = wantHide;
@@ -2146,22 +2176,26 @@ async function maybeCheckUpdate() {
 function rememberTask(payload, status) {
   const d = payload.detail ?? {};
   if (!d.task) return;
+  const latest = readSettings();
+  const id = String(payload.id ?? Date.now());
+  const prior = latest.tasks.find((task) => task.id === id);
   const entry = {
-    id: String(payload.id ?? Date.now()),
-    at: Date.now(),
+    ...prior,
+    id,
+    at: prior?.at ?? Date.now(),
     task: String(d.task),
     provider: String(d.provider ?? "claude"),
     model: String(d.model ?? ""),
     status,
     answer: status === "done" ? String(payload.text ?? "") : String(payload.text ?? "").slice(0, 400),
   };
-  settings.tasks = [...settings.tasks.filter((t) => t.id !== entry.id), entry].slice(-50);
+  const tasks = [...latest.tasks.filter((task) => task.id !== id), entry].slice(-50);
   // Daily spend meter (USD estimate from the agent's usage accounting).
   const usd = Number(d.usd) || 0;
   const day = new Date().toISOString().slice(0, 10);
-  const prev = settings.agent.spend?.date === day ? settings.agent.spend.usd : 0;
-  settings.agent = { ...settings.agent, spend: { date: day, usd: prev + usd } };
-  saveSettings();
+  const prev = latest.agent.spend?.date === day ? latest.agent.spend.usd : 0;
+  settings = writeSettings({ tasks, agent: { spend: { date: day, usd: prev + usd } } });
+  savedSettings = structuredClone(settings);
   // Tell the Tasks window (and anyone else) that history changed.
   window.__TAURI__.event.emit("pet://settings", { tasks: true }).catch(() => {});
 }
@@ -2258,6 +2292,16 @@ async function boot() {
   setTimeout(maybeCheckUpdate, 20_000);
   scheduleFrame();
 }
+
+listen("pet://task-receipt", ({ payload }) => {
+  const id = String(payload?.id || "");
+  if (!id) return;
+  const latest = readSettings();
+  const prior = latest.tasks.find((task) => task.id === id) || {};
+  settings = writeSettings({ tasks: [...latest.tasks.filter((task) => task.id !== id), { ...prior, ...payload, id }].slice(-50) });
+  savedSettings = structuredClone(settings);
+  window.__TAURI__.event.emit("pet://settings", { tasks: true }).catch(() => {});
+});
 
 // --- inline chat bar ---------------------------------------------------------
 // Companion Chat reveals a pill-shaped input. Enter hands the task to Tasks,

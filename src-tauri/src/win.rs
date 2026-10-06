@@ -10,13 +10,14 @@ use windows::Win32::Graphics::Dwm::{
 };
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN,
     MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_VIRTUALDESK, MOUSEINPUT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetAncestor, GetClassNameW, GetCursorPos, GetDesktopWindow, GetForegroundWindow,
-    GetShellWindow, GetSystemMetrics, GetWindowLongW, GetWindowRect,
+    GetShellWindow, GetSystemMetrics, GetWindowLongW, GetWindowRect, GetWindowThreadProcessId,
     GetWindowTextLengthW, GetWindowTextW, IsIconic, IsWindowVisible, IsZoomed, PostMessageW,
     SetCursorPos, GWL_EXSTYLE, GWL_STYLE, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
     SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, WM_SYSCOMMAND, WS_CAPTION, WS_CHILD, WS_EX_TOOLWINDOW, GA_ROOT,
@@ -161,6 +162,28 @@ pub fn foreground_window() -> Option<WindowInfo> {
 /// The foreground HWND as a plain integer, 0 if there is none.
 pub fn raw_foreground() -> isize {
     unsafe { GetForegroundWindow() }.0 as isize
+}
+
+/// Executable filename only; never expose full user path to the webview.
+pub fn app_name(raw: isize) -> String {
+    if raw == 0 { return String::new(); }
+    let mut pid = 0_u32;
+    unsafe { GetWindowThreadProcessId(HWND(root_window(raw) as *mut c_void), Some(&mut pid)); }
+    if pid == 0 { return String::new(); }
+    let Ok(process) = (unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }) else { return String::new(); };
+    let mut path = vec![0u16; 1024];
+    let mut len = path.len() as u32;
+    let found = unsafe { QueryFullProcessImageNameW(process, windows::Win32::System::Threading::PROCESS_NAME_FORMAT(0), windows::core::PWSTR(path.as_mut_ptr()), &mut len) }.is_ok();
+    let _ = unsafe { windows::Win32::Foundation::CloseHandle(process) };
+    if !found { return String::new(); }
+    String::from_utf16_lossy(&path[..len as usize]).rsplit(['\\', '/']).next().unwrap_or("").to_ascii_lowercase()
+}
+
+pub fn belongs_to_process(raw: isize, pid: u32) -> bool {
+    if raw == 0 { return false; }
+    let mut window_pid = 0_u32;
+    unsafe { GetWindowThreadProcessId(HWND(root_window(raw) as *mut c_void), Some(&mut window_pid)); }
+    window_pid == pid
 }
 
 pub fn root_window(raw: isize) -> isize {

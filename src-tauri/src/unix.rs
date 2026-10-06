@@ -49,6 +49,12 @@ pub mod win {
     pub fn raw_foreground() -> isize {
         0
     }
+    pub fn app_name(_raw: isize) -> String {
+        String::new()
+    }
+    pub fn belongs_to_process(_raw: isize, _pid: u32) -> bool {
+        false
+    }
     pub fn root_window(raw: isize) -> isize {
         raw
     }

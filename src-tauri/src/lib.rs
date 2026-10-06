@@ -38,6 +38,7 @@ use tauri::{
     WebviewWindowBuilder,
 };
 use tauri_plugin_notification::NotificationExt;
+use tauri_plugin_deep_link::DeepLinkExt;
 
 use geom::{CaptionButtons, Rect, WindowInfo};
 
@@ -55,6 +56,26 @@ struct HitRegions(Mutex<Vec<Rect>>);
 /// keeps the previous answer around for exactly that case.
 #[derive(Default)]
 struct LastForeground(Mutex<isize>);
+
+#[derive(Default)]
+struct PendingPetPreset(Mutex<Option<String>>);
+
+fn queue_pet_preset(app: &AppHandle, urls: impl IntoIterator<Item = String>) -> bool {
+    let Some(url) = urls.into_iter().find(|url| url.len() <= 4096 && url.starts_with("pocketpet://pet/apply?")) else { return false; };
+    let Some(pending) = app.try_state::<PendingPetPreset>() else { return false; };
+    let queued = if let Ok(mut guard) = pending.0.lock() {
+        *guard = Some(url);
+        true
+    } else {
+        false
+    };
+    queued
+}
+
+#[tauri::command]
+fn take_pet_preset_link(pending: State<'_, PendingPetPreset>) -> Option<String> {
+    pending.0.lock().ok()?.take()
+}
 
 /// A new Tasks webview may not have installed its event listeners yet. Keep
 /// hotkey actions until that webview explicitly consumes them.
@@ -119,6 +140,7 @@ struct Environment {
     /// The foreground window is a borderless fullscreen app (game, slideshow).
     fullscreen: bool,
     on_battery: bool,
+    active_app: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -377,11 +399,16 @@ fn own_handle(window: &WebviewWindow) -> isize {
 }
 
 #[tauri::command]
-fn get_environment(window: WebviewWindow) -> Environment {
+fn get_environment(window: WebviewWindow, last: State<'_, LastForeground>) -> Environment {
     let ours = own_handle(&window);
     let fg = win::raw_foreground();
     let fullscreen = fg != 0 && win::root_window(fg) != win::root_window(ours) && win::is_fullscreen(fg);
-    Environment { fullscreen, on_battery: win::on_battery() }
+    let target = if fg != 0 && !win::belongs_to_process(fg, std::process::id()) && win::root_window(fg) != win::root_window(ours) {
+        fg
+    } else {
+        last.0.lock().map(|saved| *saved).unwrap_or(0)
+    };
+    Environment { fullscreen, on_battery: win::on_battery(), active_app: win::app_name(target) }
 }
 
 /// Re-register the global hotkeys from the user's settings. Returns the
@@ -960,7 +987,7 @@ fn spawn_cursor_thread(app: AppHandle) {
 
             let ours = own_handle(&window);
             let fg = win::raw_foreground();
-            if fg != 0 && fg != ours {
+            if fg != 0 && fg != ours && !win::belongs_to_process(fg, std::process::id()) {
                 if let Some(state) = app.try_state::<LastForeground>() {
                     if let Ok(mut guard) = state.0.lock() {
                         *guard = fg;
@@ -1143,6 +1170,8 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayToggles> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {}))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_window_state::Builder::default().build());
     // Windows registers hotkeys itself (RegisterHotKey thread); the others go
@@ -1157,6 +1186,7 @@ pub fn run() {
         .manage(HitRegions::default())
         .manage(Arc::new(agent::Tasks::default()))
         .manage(LastForeground::default())
+        .manage(PendingPetPreset::default())
         .manage(PendingTaskIntents::default())
         .manage(Flags {
             interactive: AtomicBool::new(true),
@@ -1216,9 +1246,26 @@ pub fn run() {
             submit_inline_task,
             open_external,
             quit_app,
+            take_pet_preset_link,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
+            if let Some(urls) = app.deep_link().get_current()? {
+                if queue_pet_preset(&handle, urls.iter().map(ToString::to_string)) {
+                    let app = handle.clone();
+                    tauri::async_runtime::spawn(async move { let _ = open_settings(app).await; });
+                }
+            }
+            let deep_link_app = handle.clone();
+            app.deep_link().on_open_url(move |event| {
+                if queue_pet_preset(&deep_link_app, event.urls().iter().map(ToString::to_string)) {
+                    let app = deep_link_app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let _ = open_settings(app.clone()).await;
+                        let _ = app.emit("pet://preset-link", ());
+                    });
+                }
+            });
             // Tray-only app: no Dock icon, no app menu.
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);

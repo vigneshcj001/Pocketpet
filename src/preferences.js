@@ -10,6 +10,7 @@ export const DEFAULTS = {
   follow: true, mischief: false, realClick: false, sound: true, toasts: true,
   volume: 60, chatter: 50, hungerRate: 100, hunger: 20, buddyHunger: 20, hungerAt: Date.now(),
   customImage: null, customPets: [], petNames: {}, personalities: {}, colors: {}, accessories: {}, profiles: {},
+  appProfiles: [],
   stats: { meals: 0, pats: 0, pets: 0, fetches: 0, games: 0, wins: 0, breaks: 0, firstRun: Date.now() },
   focusFullscreen: true, focusAction: "quiet", quietHours: false, quietStart: "09:00", quietEnd: "17:00",
   monitor: "all", roamMargin: 16, roamBottomOnly: false,
@@ -26,7 +27,7 @@ export const DEFAULTS = {
     browser: true, allowedSites: [], dailyCapUsd: 2, speak: false, voice: true,
     spend: { date: "", usd: 0 },
     purchaseCap: 0, digestModel: "", stream: true, siteRules: {}, voiceEngine: "windows",
-    schedules: [], taskQueue: [], updateCheck: true, lastUpdateCheck: 0,
+    schedules: [], recipes: [], taskQueue: [], updateCheck: true, lastUpdateCheck: 0,
   },
   /** Recent tasks, newest last. */
   tasks: [],
@@ -103,12 +104,12 @@ export function normalizeSettings(input) {
     const custom = object(entry);
     if (!/^custom:[a-zA-Z0-9_-]{1,64}$/.test(custom.id) || seen.has(custom.id) || !validImage(custom.image)) continue;
     seen.add(custom.id);
-    next.customPets.push({ id: custom.id, name: shortText(custom.name) || "My pet", image: custom.image });
+    next.customPets.push({ id: custom.id, name: shortText(custom.name) || "My pet", image: custom.image, frames: custom.frames === 4 ? 4 : 1 });
   }
   // Preserve the old single-image pet and its identity when upgrading existing settings.
   const legacy = validImage(raw.customImage) ? raw.customImage : null;
   if (legacy && !seen.has("custom:legacy") && next.customPets.length < 12) {
-    next.customPets.push({ id: "custom:legacy", name: "Custom pet", image: legacy });
+    next.customPets.push({ id: "custom:legacy", name: "Custom pet", image: legacy, frames: 1 });
   }
   // The legacy field is consumed once. Keeping it would resurrect a removed
   // custom:legacy pet and retain a second copy of its image in localStorage.
@@ -116,6 +117,17 @@ export function normalizeSettings(input) {
   const ids = [...BUILTIN_IDS, ...next.customPets.map((pet) => pet.id)];
   next.pet = choice(raw.pet === "custom" ? "custom:legacy" : raw.pet, ids, "droplet");
   next.companion = choice(raw.companion === "custom" ? "custom:legacy" : raw.companion, ["", ...ids], "");
+  const seenApps = new Set();
+  next.appProfiles = (Array.isArray(raw.appProfiles) ? raw.appProfiles : []).slice(0, 30).map((entry) => {
+    const item = object(entry);
+    const entered = shortText(item.app, 80).toLowerCase();
+    const app = entered && !entered.endsWith(".exe") ? `${entered}.exe` : entered;
+    return { app, mode: choice(item.mode, ["playful", "quiet", "hide"], "quiet") };
+  }).filter(({ app }) => {
+    if (!/^[a-z0-9][a-z0-9._ -]{0,75}\.exe$/.test(app) || seenApps.has(app)) return false;
+    seenApps.add(app);
+    return true;
+  });
   next.stats = normalizeProfile(raw.stats);
   const profiles = object(raw.profiles);
   for (const id of ids) {
@@ -170,6 +182,10 @@ export function normalizeSettings(input) {
       lastRun: shortText(s.lastRun, 10),
     };
   }).filter((s) => s.task);
+  next.agent.recipes = (Array.isArray(agent.recipes) ? agent.recipes : []).slice(0, 30).map((entry) => {
+    const recipe = object(entry);
+    return { id: shortText(recipe.id, 40), name: shortText(recipe.name, 80), task: shortText(recipe.task, 600) };
+  }).filter((recipe) => recipe.id && recipe.name && recipe.task);
   next.agent.taskQueue = (Array.isArray(agent.taskQueue) ? agent.taskQueue : []).slice(0, 20).map((value) => {
     const item = object(value);
     return { id: shortText(item.id, 40), task: shortText(item.task, 2000), scheduled: item.scheduled === true };
@@ -190,6 +206,8 @@ export function normalizeSettings(input) {
       model: shortText(task.model, 120),
       status: choice(task.status, ["done", "error", "cancelled"], "done"),
       answer: typeof task.answer === "string" ? task.answer.slice(0, 8000) : "",
+      approvals: Math.floor(number(task.approvals, 0, 0, 100)),
+      durationMs: Math.floor(number(task.durationMs, 0, 0, 86_400_000)),
     };
   }).filter((t) => t.task);
   return next;

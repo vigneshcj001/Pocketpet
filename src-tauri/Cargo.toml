@@ -1,10 +1,10 @@
 [package]
 name = "pocketpet"
-version = "0.2.1"
+version = "0.2.2"
 description = "PocketPet - desktop pet that follows your cursor and clicks your window buttons"
 authors = ["vigneshcj001"]
 edition = "2021"
-rust-version = "1.77"
+rust-version = "1.90"
 
 [lib]
 name = "pocketpet_lib"
@@ -26,6 +26,8 @@ futures-util = "0.3"
 regex-lite = "0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "net"] }
 tauri-plugin-notification = "2"
+tauri-plugin-deep-link = "2.6.1"
+tauri-plugin-single-instance = { version = "2.5.2", features = ["deep-link"] }
 
 # macOS / Linux: what Win32 gave us for free comes from crates instead.
 [target.'cfg(not(windows))'.dependencies]

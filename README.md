@@ -53,7 +53,8 @@ The task window uses the same pet and colour, with starting, thinking and comple
   A toast appears instead when the pet is hidden.
 - **Companion.** A second animal that can be fed, patted and played with.
 - **Your own picture as a pet.** Add up to 12 PNG, GIF, JPG or WebP pictures;
-  each is cropped and resized before saving.
+  each is cropped and resized before saving. Four-frame horizontal sprite
+  sheets can show idle, walk, sleep, and happy states.
 - **Sounds.** Synthesised chirp, purr, munch and boing — no audio files. Mute
   and volume in settings.
 - **Size, speed, run-at-startup and editable global shortcuts,** a settings
@@ -77,7 +78,10 @@ The task window uses the same pet and colour, with starting, thinking and comple
   hide-and-seek mini-games with a win record (while hiding, the pet and its
   hunger bar vanish completely — no peeking).
 - **Dashboard.** Per-pet counters, milestones with progress, a journal, and
-  accessories that unlock as you go.
+  accessories that unlock as you go. Friendship level and mood reflect play and hunger.
+- **Per-app pet modes (Windows).** Assign an executable a playful, quiet, or
+  hidden mode. Fullscreen protection still takes priority.
+- **Pet friendships.** Nearby companions greet each other and share a moment.
 - **Shortcuts you choose.** Hide/show, feed, throw and settings hotkeys are
   all rebindable; speech-bubble size and duration are adjustable.
 - **Battery-friendly.** Drops to 15 fps and scans windows less when hidden,
@@ -106,6 +110,12 @@ The task window uses the same pet and colour, with starting, thinking and comple
   audit logs, "sign in once" for the pet's browser, update check against
   GitHub Releases, crash logs and a diagnostics copy button. Windows remember
   their size and position.
+- **Task recipes and result cards.** Save reusable prompts, run or schedule
+  them, then review answer links, prices, dates, approval count, and audit log.
+- **Website pet setup handoff.** Dress a pet on the website and send its
+  appearance through the installed app's `pocketpet://` link. A JSON download
+  can be imported in Settings → Pets if the browser blocks app links. Neither
+  route changes credentials or trust rules.
 
 ## How the tricky parts work
 
@@ -235,7 +245,8 @@ updates, commit matching versions in `Cargo.toml`, `Cargo.lock`, and
 `tauri.conf.json`, then push a new matching `v*` tag. A public Windows release
 also needs the signing secrets described in the release steps. See the
 [release steps](docs/08_DevOps/CI_CD.md). Settings → About & updates shows the
-installed version and build so you can confirm which code is running.
+  installed version and build plus latest published release so you can confirm
+  which code is running. Pushing `main` alone does not publish a release.
 
 To start it with Windows, use **Run at startup** in the pet menu or tray menu.
 

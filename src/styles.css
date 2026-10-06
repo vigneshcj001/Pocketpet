@@ -513,6 +513,12 @@ body {
   filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.3));
 }
 
+/* Friendship adds a small visual reward without obscuring active animations. */
+.pet[data-friendship="2"][data-state="idle"] .sprite { filter: drop-shadow(0 0 4px #ffd26b88); }
+.pet[data-friendship="3"][data-state="idle"] .sprite { filter: drop-shadow(0 0 7px #f3a4d099); }
+.pet[data-mood="hungry"][data-state="idle"] .sprite,
+.pet[data-mood="famished"][data-state="idle"] .sprite { filter: saturate(.72); }
+
 /* --- peeking over a ledge edge --------------------------------------------- */
 
 .pet[data-state="peek"] .sprite {

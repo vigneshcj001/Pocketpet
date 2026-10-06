@@ -1,11 +1,12 @@
 // Tasks window. Runs a web errand through the Rust agent (agent.rs) and shows
 // its progress; pauses for approvals; holds memory, keys, schedules and
 // limits. Settings share the overlay's localStorage via preferences.js; API
-// keys go to Credential Manager only. Task history and spend are written by
-// the overlay (single writer), which tells us via pet://settings.
+// keys go to Credential Manager only. The overlay records task history and
+// spend; this window sends receipt metadata for that history entry.
 import { readSettings, writeSettings, AGENT_PROVIDERS } from "./preferences.js";
 import { getPet } from "./pets/index.js";
 import { tintedSvg, customImageSvg } from "./appearance.js";
+import { resultHints } from "./result-card.js";
 import { COMPOSE_REQUEST, icon } from "./companion.js";
 
 const { invoke } = window.__TAURI__.core;
@@ -89,7 +90,7 @@ function showTab(name) {
   if (name === "providers") renderKeys();
   if (name === "memory") loadMemory();
   if (name === "limits") renderLimits();
-  if (name === "schedules") renderSchedules();
+  if (name === "schedules") { renderSchedules(); renderRecipes(); }
   if (name === "run") acknowledgeVisibleTask();
 }
 
@@ -488,6 +489,44 @@ $("memoryClear").addEventListener("click", async () => {
 
 // --- schedules ---------------------------------------------------------------------------
 
+function renderRecipes() {
+  settings = readSettings();
+  const list = $("recipeList");
+  list.replaceChildren();
+  for (const recipe of settings.agent.recipes) {
+    const li = document.createElement("li");
+    const label = document.createElement("span");
+    label.className = "grow";
+    label.textContent = `${recipe.name}: ${recipe.task}`;
+    const button = (text, action) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = text;
+      b.addEventListener("click", action);
+      return b;
+    };
+    li.append(label,
+      button("Run", () => { $("task").value = recipe.task; autosize(); showTab("run"); submitTask(recipe.task, false); }),
+      button("Schedule", () => { $("schedTask").value = recipe.task; $("schedTask").focus(); }),
+      button("Remove", () => { save({ agent: { recipes: settings.agent.recipes.filter((item) => item.id !== recipe.id) } }); renderRecipes(); }),
+    );
+    list.append(li);
+  }
+  if (!settings.agent.recipes.length) list.textContent = "No recipes yet.";
+}
+
+$("recipeAdd").addEventListener("click", () => {
+  const name = $("recipeName").value.trim();
+  const task = $("recipeTask").value.trim();
+  if (!name || !task) { $("recipeStatus").textContent = "Name and task required."; return; }
+  if (settings.agent.recipes.length >= 30) { $("recipeStatus").textContent = "Recipe limit reached (30)."; return; }
+  save({ agent: { recipes: [...settings.agent.recipes, { id: crypto.randomUUID(), name, task }] } });
+  $("recipeName").value = "";
+  $("recipeTask").value = "";
+  $("recipeStatus").textContent = "Recipe saved.";
+  renderRecipes();
+});
+
 function renderSchedules() {
   settings = readSettings();
   const list = $("schedList");
@@ -715,10 +754,11 @@ async function startTask(task, followUp = false, { scheduled = false, queuedItem
   const model = $("model").value.trim();
   // The overlay recognises scheduled runs by this prefix (completion toast).
   const id = `${scheduled ? "sched-" : ""}${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-  current = { id, task, provider, model, startedAt: Date.now(), paused: false, host: "" };
+  current = { id, task, provider, model, startedAt: Date.now(), paused: false, host: "", approvals: 0 };
   renderQueue();
   $("log").innerHTML = "";
   $("answerCard").hidden = true;
+  $("resultCard").hidden = true;
   $("answer").textContent = "";
   $("answer").classList.remove("live");
   $("plan").hidden = true;
@@ -773,6 +813,7 @@ $("kill").addEventListener("click", () => {
 
 // approvals and questions
 function showAsk(kind, text, host) {
+  if (kind === "confirm" && current) current.approvals += 1;
   $("askCard").hidden = false;
   $("askTitle").textContent = kind === "confirm" ? "Approve this step?" : "The pet has a question";
   if (current) current.waitingSince = Date.now();
@@ -832,6 +873,7 @@ function finish(status, text) {
     lastTerminal = { id: done.id, phase: status === "done" ? "completed" : "error" };
   }
   const took = mmss(Date.now() - done.startedAt);
+  const durationMs = Date.now() - done.startedAt;
   // Log while `current` is still set so the line gets a timestamp.
   logLine(status === "done" ? "answer" : status, status === "done" ? "Answer ready" : text);
   current = null;
@@ -845,6 +887,7 @@ function finish(status, text) {
     for (const li of $("plan").querySelectorAll('[data-status="doing"]')) li.dataset.status = "done";
     $("answerCard").hidden = false;
     renderAnswer(text);
+    renderResultCard(text, done);
     answeredOnce = true;
     $("followRow").hidden = false; // opt-in: ticking it continues with this task's context
     $("answerCard").scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -859,6 +902,40 @@ function finish(status, text) {
   } else {
     renderQueue();
   }
+  emit("pet://task-receipt", {
+    id: done.id, at: done.startedAt, task: done.task, provider: done.provider,
+    model: done.model, status, answer: text, approvals: done.approvals, durationMs,
+  }).catch(() => {});
+}
+
+function renderResultCard(text, receipt) {
+  const hints = resultHints(text);
+  $("resultCard").hidden = false;
+  $("resultMeta").textContent = `${receipt.provider}${receipt.model ? ` · ${receipt.model}` : ""} · ${mmss(receipt.durationMs ?? Date.now() - receipt.startedAt)} · ${receipt.approvals ?? 0} approval request(s)`;
+  const root = $("resultHints");
+  root.replaceChildren();
+  for (const [title, values] of [["Links mentioned", hints.urls], ["Prices mentioned", hints.prices], ["Dates mentioned", hints.dates]]) {
+    if (!values.length) continue;
+    const group = document.createElement("div");
+    group.className = "result-card-group";
+    const heading = document.createElement("b");
+    heading.textContent = title;
+    group.append(heading);
+    for (const value of values) {
+      const item = document.createElement(title.startsWith("Links") ? "a" : "span");
+      item.textContent = value;
+      if (item instanceof HTMLAnchorElement) {
+        item.href = value;
+        item.addEventListener("click", (event) => { event.preventDefault(); invoke("open_external", { url: value }).catch(() => {}); });
+      }
+      group.append(item);
+    }
+    root.append(group);
+  }
+  $("resultLog").onclick = async () => {
+    const ok = await invoke("open_task_log", { id: receipt.id }).catch(() => false);
+    if (!ok) $("status").textContent = "No audit log for this task.";
+  };
 }
 
 /** Plain text with clickable links; nothing else is interpreted. */
@@ -1120,9 +1197,12 @@ function renderHistory() {
   const open = (t) => {
     $("task").value = t.task;
     autosize();
+    $("answerCard").hidden = true;
+    $("resultCard").hidden = true;
     if (t.status === "done" && t.answer) {
       $("answerCard").hidden = false;
       renderAnswer(t.answer);
+      renderResultCard(t.answer, t);
     }
     showTab("run");
   };
@@ -1231,7 +1311,7 @@ listen("pet://settings", () => {
 // Keep the same chosen pet and colour across the overlay and task window.
 function paintCompanion() {
   const custom = settings.customPets.find((item) => item.id === settings.pet);
-  const pet = custom ? { id: custom.id, svg: customImageSvg(custom.image), tint: [] } : getPet(settings.pet);
+  const pet = custom ? { id: custom.id, svg: customImageSvg(custom.image, custom.frames), tint: [] } : getPet(settings.pet);
   $("task-sprite").dataset.pet = pet.id;
   $("task-sprite").innerHTML = tintedSvg(pet, settings.colors[settings.pet]);
 }
