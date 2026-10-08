@@ -1,7 +1,8 @@
 # PocketPet
 
 A desktop pet for Windows (full), macOS and Linux (cursor-following, tasks,
-games; no window tricks). One animal — cat, duck, panda or penguin — lives in a
+games; no window tricks). Pick a droplet, cat, duck, panda, penguin, or custom
+pet; an optional companion can join it. The active pet lives in a
 transparent overlay that spans every monitor. It chases your cursor, perches on
 the titlebars of your real windows, talks to you, and can walk over to a
 window's caption buttons and press them with its paw.

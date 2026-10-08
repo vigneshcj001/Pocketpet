@@ -70,7 +70,23 @@ pub fn provider(id: &str) -> Option<&'static Provider> {
 /// Rough list prices, USD per million tokens (input, output). Used only for the
 /// spend meter and the daily cap; local models are free.
 fn price(model: &str) -> (f64, f64) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    price_at(model, now)
+}
+
+fn price_at(model: &str, unix_seconds: u64) -> (f64, f64) {
     let m = model.to_ascii_lowercase();
+    // Google Standard API pricing. Gemini 3.6/3.7/3.8 Flash introductory
+    // rates end at 2027-01-01 00:00 UTC; keep spend caps conservative after.
+    if ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash"]
+        .iter().any(|id| m.starts_with(id)) {
+        return if unix_seconds < 1_798_761_600 { (0.75, 3.75) } else { (1.5, 7.5) };
+    }
+    if m.starts_with("gemini-3.5-flash-lite") { return (0.3, 2.5); }
+    if m.starts_with("gemini-3.5-flash") { return (1.5, 9.0); }
     let table: [(&str, (f64, f64)); 17] = [
         ("claude-opus", (5.0, 25.0)),
         ("claude-fable", (10.0, 50.0)),
@@ -1828,6 +1844,13 @@ mod tests {
     fn strips_html_to_readable_text() {
         let html = "<html><head><title>x</title><style>p{}</style></head><body><h1>Hi</h1><p>One &amp; two</p><script>bad()</script><div>Three</div></body></html>";
         assert_eq!(html_to_text(html), "Hi\nOne & two\nThree");
+    }
+
+    #[test]
+    fn gemini_spend_estimate_tracks_introductory_price_end() {
+        assert_eq!(price_at("gemini-3.6-flash", 1_767_225_600), (0.75, 3.75));
+        assert_eq!(price_at("gemini-3.6-flash", 1_798_761_600), (1.5, 7.5));
+        assert_eq!(price_at("gemini-3.5-flash-lite", 1_767_225_600), (0.3, 2.5));
     }
 
     #[tokio::test]

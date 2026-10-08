@@ -60,8 +60,18 @@ struct LastForeground(Mutex<isize>);
 #[derive(Default)]
 struct PendingPetPreset(Mutex<Option<String>>);
 
+#[derive(Default)]
+struct WindowOpenLocks {
+    settings: tokio::sync::Mutex<()>,
+    tasks: tokio::sync::Mutex<()>,
+}
+
+fn pet_preset_url(urls: impl IntoIterator<Item = String>) -> Option<String> {
+    urls.into_iter().find(|url| url.len() <= 4096 && url.starts_with("pocketpet://pet/apply?"))
+}
+
 fn queue_pet_preset(app: &AppHandle, urls: impl IntoIterator<Item = String>) -> bool {
-    let Some(url) = urls.into_iter().find(|url| url.len() <= 4096 && url.starts_with("pocketpet://pet/apply?")) else { return false; };
+    let Some(url) = pet_preset_url(urls) else { return false; };
     let Some(pending) = app.try_state::<PendingPetPreset>() else { return false; };
     let queued = if let Ok(mut guard) = pending.0.lock() {
         *guard = Some(url);
@@ -70,6 +80,17 @@ fn queue_pet_preset(app: &AppHandle, urls: impl IntoIterator<Item = String>) -> 
         false
     };
     queued
+}
+
+fn receive_pet_preset(app: &AppHandle, urls: impl IntoIterator<Item = String>) {
+    if !queue_pet_preset(app, urls) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let _ = open_settings(app.clone()).await;
+        let _ = app.emit("pet://preset-link", ());
+    });
 }
 
 #[tauri::command]
@@ -484,6 +505,8 @@ fn notify(title: String, body: String, app: AppHandle) {
 /// deadlocks the main thread (the command holds it while the webview waits on it).
 #[tauri::command]
 async fn open_settings(app: AppHandle) -> Result<(), String> {
+    let locks = app.state::<WindowOpenLocks>();
+    let _guard = locks.settings.lock().await;
     if let Some(existing) = app.get_webview_window("settings") {
         let _ = existing.unminimize();
         let _ = existing.set_focus();
@@ -742,6 +765,8 @@ fn window_for_pid(pid: u32) -> Option<WindowInfo> {
 
 #[tauri::command]
 async fn open_tasks(app: AppHandle) -> Result<(), String> {
+    let locks = app.state::<WindowOpenLocks>();
+    let _guard = locks.tasks.lock().await;
     if let Some(existing) = app.get_webview_window("tasks") {
         let _ = existing.unminimize();
         let _ = existing.set_focus();
@@ -1170,7 +1195,9 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayToggles> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {}))
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            receive_pet_preset(app, argv);
+        }))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_window_state::Builder::default().build());
@@ -1187,6 +1214,7 @@ pub fn run() {
         .manage(Arc::new(agent::Tasks::default()))
         .manage(LastForeground::default())
         .manage(PendingPetPreset::default())
+        .manage(WindowOpenLocks::default())
         .manage(PendingTaskIntents::default())
         .manage(Flags {
             interactive: AtomicBool::new(true),
@@ -1251,20 +1279,11 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             if let Some(urls) = app.deep_link().get_current()? {
-                if queue_pet_preset(&handle, urls.iter().map(ToString::to_string)) {
-                    let app = handle.clone();
-                    tauri::async_runtime::spawn(async move { let _ = open_settings(app).await; });
-                }
+                receive_pet_preset(&handle, urls.iter().map(ToString::to_string));
             }
             let deep_link_app = handle.clone();
             app.deep_link().on_open_url(move |event| {
-                if queue_pet_preset(&deep_link_app, event.urls().iter().map(ToString::to_string)) {
-                    let app = deep_link_app.clone();
-                    tauri::async_runtime::spawn(async move {
-                        let _ = open_settings(app.clone()).await;
-                        let _ = app.emit("pet://preset-link", ());
-                    });
-                }
+                receive_pet_preset(&deep_link_app, event.urls().iter().map(ToString::to_string));
             });
             // Tray-only app: no Dock icon, no app menu.
             #[cfg(target_os = "macos")]
@@ -1347,6 +1366,13 @@ pub fn run() {
 #[cfg(test)]
 mod native_tests {
     use super::*;
+
+    #[test]
+    fn second_instance_argv_finds_website_preset_link() {
+        let link = "pocketpet://pet/apply?pet=cat&color=%23ffaa00&accessories=%5B%5D";
+        assert_eq!(pet_preset_url(["pocketpet.exe".into(), link.into()]), Some(link.into()));
+        assert_eq!(pet_preset_url(["pocketpet.exe".into(), "https://example.com".into()]), None);
+    }
 
     #[test]
     fn clearing_logs_preserves_other_files() {
