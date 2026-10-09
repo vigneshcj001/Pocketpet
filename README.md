@@ -1,7 +1,7 @@
 # PocketPet
 
 A desktop pet for Windows (full), macOS and Linux (cursor-following, tasks,
-games; no window tricks). Pick a droplet, cat, duck, panda, penguin, or custom
+games; no window tricks). Pick a cat, duck, panda, penguin, or custom
 pet; an optional companion can join it. The active pet lives in a
 transparent overlay that spans every monitor. It chases your cursor, perches on
 the titlebars of your real windows, talks to you, and can walk over to a
@@ -18,9 +18,9 @@ your OS. All builds are on the
 | App (this repo) | <https://github.com/vigneshcj001/Pocketpet> |
 | Website | <https://pocketpet-web.vercel.app/> · source: <https://github.com/vigneshcj001/Pocketpet-web> |
 
-## Blue droplet companion
+## Companion controls
 
-The blue pixel droplet is the default for new installations. Existing pet selections are preserved: choose **Droplet** from the tray's **Choose pet** menu or the visual picker in Settings. Click the small **⋯** button beside the pet to reveal Chat, Voice, and Details. A badge marks tasks needing attention or results not yet viewed; controls stay closed until clicked. Click the task-status pill to open task details and approvals. Controls move above the pet when there is not enough space below it.
+Cat is the default for new installations. Existing animal and custom pet selections are preserved. Older droplet selections switch to cat, with friendship history carried over. Click the small **⋯** button beside the pet to reveal Chat, Voice, and Details. A badge marks tasks needing attention or results not yet viewed; controls stay closed until clicked. Click the task-status pill to open task details and approvals. Controls move above the pet when there is not enough space below it.
 
 The task window uses the same pet and colour, with starting, thinking and completed expressions. Voice uses the configured desktop voice engine; enable it under Providers & keys. Rebuild and restart the desktop app to use these changes.
 

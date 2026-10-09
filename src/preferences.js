@@ -1,12 +1,12 @@
 // Shared, validated settings for the overlay, the control room, and backups.
 // This module has no DOM dependency, so migrations and backup validation can be tested.
 export const STORAGE_KEY = "pocketpet";
-export const BUILTIN_IDS = ["droplet", "cat", "duck", "panda", "penguin"];
+export const BUILTIN_IDS = ["cat", "duck", "panda", "penguin"];
 export const ACTIVITY_KEYS = ["meals", "pats", "pets", "fetches", "games", "wins", "breaks", "tasks"];
 export const AGENT_PROVIDERS = ["claude", "openai", "groq", "gemini", "deepseek", "ollama", "custom"];
 export const MAX_TASK_HISTORY = 50;
 export const DEFAULTS = {
-  pet: "droplet", companion: "", size: "medium", speed: "normal",
+  pet: "cat", companion: "", size: "medium", speed: "normal",
   follow: true, mischief: false, realClick: false, sound: true, toasts: true,
   volume: 60, chatter: 50, hungerRate: 100, hunger: 20, buddyHunger: 20, hungerAt: Date.now(),
   customImage: null, customPets: [], petNames: {}, personalities: {}, colors: {}, accessories: {}, profiles: {},
@@ -115,7 +115,7 @@ export function normalizeSettings(input) {
   // custom:legacy pet and retain a second copy of its image in localStorage.
   next.customImage = null;
   const ids = [...BUILTIN_IDS, ...next.customPets.map((pet) => pet.id)];
-  next.pet = choice(raw.pet === "custom" ? "custom:legacy" : raw.pet, ids, "droplet");
+  next.pet = choice(raw.pet === "custom" ? "custom:legacy" : raw.pet, ids, "cat");
   next.companion = choice(raw.companion === "custom" ? "custom:legacy" : raw.companion, ["", ...ids], "");
   const seenApps = new Set();
   next.appProfiles = (Array.isArray(raw.appProfiles) ? raw.appProfiles : []).slice(0, 30).map((entry) => {
@@ -130,8 +130,16 @@ export function normalizeSettings(input) {
   });
   next.stats = normalizeProfile(raw.stats);
   const profiles = object(raw.profiles);
+  // Keep friendship history when older installs upgrade from the removed pet.
+  const oldProfile = profiles.droplet ? normalizeProfile(profiles.droplet) : null;
+  const catProfile = profiles.cat ? normalizeProfile(profiles.cat) : null;
+  const migratedCatProfile = oldProfile && catProfile ? normalizeProfile({
+    firstRun: Math.min(oldProfile.firstRun, catProfile.firstRun),
+    ...Object.fromEntries(ACTIVITY_KEYS.map((key) => [key, Math.min(1_000_000_000, oldProfile[key] + catProfile[key])])),
+    journal: [...oldProfile.journal, ...catProfile.journal].sort((a, b) => a.at - b.at).slice(-40),
+  }) : oldProfile ?? catProfile;
   for (const id of ids) {
-    const profile = profiles[id] ?? (id === "custom:legacy" ? profiles.custom : undefined);
+    const profile = id === "cat" ? migratedCatProfile : profiles[id] ?? (id === "custom:legacy" ? profiles.custom : undefined);
     // A pre-dashboard install has only global counters; migrate those to its active pet once.
     next.profiles[id] = normalizeProfile(profile ?? (Object.keys(profiles).length === 0 && id === next.pet ? raw.stats : undefined));
     const name = shortText(object(raw.petNames)[id]);

@@ -52,6 +52,6 @@ test("removing a migrated custom pet does not resurrect it on the next settings 
   assert.equal(migrated.customImage, null);
   const removed = normalizeSettings({ ...migrated, customPets: [] });
   assert.deepEqual(removed.customPets, []);
-  assert.equal(removed.pet, "droplet");
+  assert.equal(removed.pet, "cat");
   assert.deepEqual(normalizeSettings(removed).customPets, []);
 });

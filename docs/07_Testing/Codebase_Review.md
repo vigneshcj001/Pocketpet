@@ -38,7 +38,7 @@ regression pass, not an exhaustive security audit.
 - Optimized Windows build and NSIS installer succeeded. Installed and restarted
   the fresh package. Verified executable contents match the release build apart
   from Tauri's expected `UNK` → `NSS` bundle marker.
-- Desktop smoke check: Settings opens, Droplet appears in the pet selector, and
+- Desktop smoke check: Settings opens, Cat appears in the pet selector, and
   Updates shows version 0.2.0 with the new build identity. Existing Cat selection
   and settings were preserved.
 - Tasks opens through its global shortcut and renders the updated companion

@@ -53,19 +53,19 @@ body.tasks-companion { --bg: #fff; --card: #fff; --ink: #252729; --muted: #777b8
 }
 
 /* Shared task feedback for every built-in animal and custom-image pet. */
-.pet[data-task-state="thinking"] .sprite:not([data-pet="droplet"]) .p-eye,
-.task-mascot[data-state="thinking"] .sprite:not([data-pet="droplet"]) .p-eye {
+.pet[data-task-state="thinking"] .sprite .p-eye,
+.task-mascot[data-state="thinking"] .sprite .p-eye {
   animation: none;
   transform: scaleY(.12);
   transform-origin: center;
   transform-box: fill-box;
 }
-.pet[data-task-state="thinking"] .sprite:not([data-pet="droplet"]),
-.task-mascot[data-state="thinking"] .sprite:not([data-pet="droplet"]) {
+.pet[data-task-state="thinking"] .sprite,
+.task-mascot[data-state="thinking"] .sprite {
   animation: companion-breathe 2.6s ease-in-out infinite;
 }
-.pet[data-task-state="completed"] .sprite:not([data-pet="droplet"]),
-.task-mascot[data-state="completed"] .sprite:not([data-pet="droplet"]) {
+.pet[data-task-state="completed"] .sprite,
+.task-mascot[data-state="completed"] .sprite {
   animation: companion-celebrate .45s ease-in-out 3;
 }
 .task-mascot .custom-img { width: 100%; height: 100%; object-fit: contain; }
