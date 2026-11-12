@@ -8,6 +8,7 @@ PocketPet does not run a vector store. Retrieval is live and tool-driven:
 | Claude | Anthropic server `web_search` / `web_fetch` | 8 uses each; 20 k tokens per fetch |
 | Owner facts | `memory.md` injected whole | ≤ 6 000 chars |
 | Prior task | follow-up transcript | ≤ 40 messages |
+| Grounding | prompt requires a URL after facts taken from a page; eval regexes check for it | — |
 | Long outputs | digest model summarises with the task as query | keeps refs/URLs/prices |
 
 Why no index: tasks are ad-hoc and time-sensitive; freshness beats recall;

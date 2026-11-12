@@ -4,7 +4,7 @@
 ┌───────────────────────── Tauri 2 app (pocketpet, Rust) ─────────────────────────────┐
 │ lib.rs       commands · tray · overlay config · cursor thread · hotkey dispatch      │
 │ geom.rs      Rect / WindowInfo / CaptionButtons shared by every platform             │
-│ paths.rs     per-OS data folder                                                      │
+│ paths.rs     per-OS data folder · Linux env setup · clean env for host programs      │
 │ ── Windows (#[cfg(windows)]) ──                                                      │
 │ win.rs       Win32: windows, foreground, fullscreen, battery, pid→hwnd, syscommand  │
 │ titlebar.rs  caption-button geometry (TITLEBARINFOEX → UIA → guess)                  │
@@ -38,7 +38,11 @@
   one `localStorage`; the overlay is the only writer of history/spend to avoid
   cross-process races.
 - The agent's browser is a separate Chromium process tree, launched with
-  `--remote-debugging-port` and a dedicated `--user-data-dir`.
+  `--remote-debugging-port` and a dedicated `--user-data-dir`. Host programs
+  (browser, `xdg-open`) start through `paths::host_command`, which removes
+  AppImage library paths and PocketPet's own Linux overrides.
+- Linux start-up (`prepare_linux_environment`, before GTK): XWayland on
+  Wayland sessions with `DISPLAY`, WebKit DMA-BUF renderer off unless set.
 
 ## Data flow (agent)
 
@@ -58,3 +62,4 @@ provider turn (SSE) → tool dispatch → gates → browser/CDP or HTTP → tool
 | `#[cfg]` split, not a trait | Two implementations of one module API (`win`/`titlebar`/`startup`/`extras` vs `unix.rs`) keep the Windows path untouched and let non-Windows return empty for window tricks |
 | Own browser profile | user's sessions stay untouched; agent sessions persist for "sign in once" |
 | Streaming with fallback | local servers sometimes reject `stream_options` |
+| XWayland on Wayland | Wayland offers no global cursor or click-through; X11 gives both |

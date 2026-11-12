@@ -1,10 +1,10 @@
 # Product Requirements Document — PocketPet
 
-Version 0.1 · September 2026 · Owner: vigneshcj001
+Version 0.2.4 · November 2026 · Owner: vigneshcj001
 
 ## 1. Summary
 
-PocketPet is a Windows desktop pet that also runs web errands. It lives on the
+PocketPet is a desktop pet for Windows, macOS and Linux that also runs web errands. It lives on the
 desktop as a click-through overlay, reacts to the user (follows the cursor,
 sits on windows, plays, eats, sleeps), keeps them healthy (break reminders,
 focus mode), and — on request, by text or voice — searches the web, reads
@@ -35,23 +35,26 @@ human click at every commitment point.
 4. **Local by default.** Keys, memory, logs stay on the machine. No telemetry.
 5. **Cheap.** Streaming, digest model, caps; a task should cost cents.
 
-## 5. Features (shipped in 0.1)
+## 5. Features (shipped through 0.2.4)
 
 | Area | Features |
 |------|----------|
 | Pet | cursor following, ledge walking, window-button pressing, drag/throw, perch, speech bubbles, 4 animals + custom images, colours, accessories, personalities, companion |
 | Care | hunger/feeding, fetch with three toys, two mini-games, petting, stats, milestones, journal |
 | Wellbeing | break reminders (snooze, countdown, cycles), focus mode, quiet hours, toasts |
-| Agent | text/voice tasks; web search + fetch; browser driving; plans; streaming; approvals; site rules; purchase & spend caps; memory; schedules; follow-ups; audit logs; kill switch |
-| Platform | Windows (full), macOS, Linux; tray, hotkeys, run at startup, low-power, multi-monitor, backup/restore, update check, window state; download page at https://pocketpet-web.vercel.app/ |
+| Agent | text/voice tasks; inline chat bar on the pet; recipes; queue; web search + fetch; browser driving; plans; streaming; approvals; site rules; purchase & spend caps; memory; schedules (with catch-up); follow-ups; result cards; audit logs; kill switch |
+| Personalisation | per-app pet modes (Windows), mood and friendship, four-frame sprite sheets, appearance from the website via `pocketpet://` link or JSON |
+| Platform | Windows (full), macOS, Linux (.deb/.rpm/AppImage, Wayland via XWayland); tray, hotkeys, run at startup, low-power, multi-monitor, backup/restore, SHA-256-verified update check, window state; download page at https://pocketpet-web.vercel.app/ |
 
 ## 6. Non-goals (0.x)
 
-macOS/Linux, cloud sync, autonomous payments, app-store distribution.
+Window-aware tricks on macOS/Linux, cloud sync, autonomous payments, app-store distribution.
 
 ## 7. Release criteria
 
-See `02_Requirements/Acceptance_Criteria.md` and `07_Testing/Test_Plan.md`.
+See `02_Requirements/Acceptance_Criteria.md` and `07_Testing/Test_Plan.md`. The
+AI design and its open gaps are summarised in
+[AI System Design](../03_Architecture/AI_System_Design.md).
 
 ## 8. Open questions
 

@@ -13,3 +13,8 @@
 
 Backups exclude keys and memory. Diagnostics text includes version, provider
 names with keys, and crash logs — review before sharing.
+
+Third parties: task text, page contents, screenshots and memory are processed
+by the provider the user chose, under that provider's terms and retention
+policy. Local models (Ollama, custom server) keep everything on the machine.
+Website presets (`pocketpet://`) carry appearance only.

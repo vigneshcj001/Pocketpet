@@ -27,11 +27,15 @@ Given/When/Then per feature. All must pass before a tagged release.
 - **Memory**: When the model calls `remember`, then the fact appears in the Memory tab and in the next task's prompt.
 - **Schedule**: Given a schedule at now+1 min, then the task runs once, a toast appears, history has the entry with id `sched-…`.
 - **Voice**: Given the Windows engine and speech enabled in Windows, when I press 🎤 and speak, then the text lands in the task box.
+- **Inline chat**: When I type an errand in the pet's chat bar and press Enter, then Tasks opens and runs it with the usual approvals and progress.
+- **Keyboard submit**: When the model presses Enter in a checkout or login form, then the same approval card appears as for clicking its submit button.
+- **Queue**: Given a running task, when I submit another, then it waits in the queue and starts when the first ends; it survives an app restart.
 
 ## Platform
 - **Installer (Windows)**: Running the setup silently installs to `%LOCALAPPDATA%\PocketPet`, creates a Start Menu entry, and launches.
 - **macOS**: Opening the DMG and dragging to Applications yields an app that launches after right-click → Open (unsigned); the pet appears on the main display; no Dock icon.
-- **Linux**: `chmod +x` + run the AppImage (or `apt install ./*.deb`) launches on X11/XWayland; the pet is click-through.
+- **Linux**: `chmod +x` + run the AppImage, `apt install ./*.deb` or `dnf install ./*.rpm` launches on X11; on a GNOME/KDE Wayland session it runs through XWayland and the pet still follows the cursor and is click-through; with `POCKETPET_NATIVE_WAYLAND=1` and no X server it starts without crashing.
+- **Linux browser from AppImage**: a browser task started from the AppImage opens the system Chrome/Chromium normally (no library errors in its output).
 - **Download page**: On https://pocketpet-web.vercel.app/ the visitor's OS card is marked and every button links to the matching asset of the latest release.
-- **Update**: Given a newer tagged release, when checking, then it is offered; on Windows install downloads the `-setup.exe` from GitHub, launches it and exits; on macOS/Linux the matching `.dmg` / `.AppImage` is downloaded and opened.
+- **Update**: Given a newer tagged release with SHA-256 digests, when checking, then it is offered; on Windows install downloads the `-setup.exe` from GitHub, verifies it, launches it and exits; on macOS the matching `.dmg` is opened; on Linux an AppImage install gets the `.AppImage` and a `.deb` / `.rpm` install gets that package. A digest mismatch is refused.
 - **Backup**: Export then import on a clean profile restores pets, names, colours, rules, schedules, history — and no keys.

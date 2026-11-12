@@ -12,7 +12,9 @@
 | AG-8 | Break coach | rules | breakMins timer | `src/main.js` | asks the user to rest |
 | AG-9 | Focus guard | rules | env poll 2 s | `src/main.js` + `win.rs` | hides/quiets the pet |
 | AG-10 | Companion | rules | frame loop | `src/main.js` | second pet movement |
-| AG-11 | Scheduler | rules | 30-s tick | `src/main.js` | starts AG-1 tasks |
+| AG-11 | Scheduler | rules | 30-s tick | `src/main.js` | queues AG-1 tasks through Tasks |
+| AG-13 | Task dispatcher | rules | chat bar, hotkeys, schedules, queue | `lib.rs` (`PendingTaskIntents`) + `src/tasks.js` | starts AG-1 tasks in order |
+| AG-14 | App-mode guard | rules (Windows) | env poll 2 s | `src/app-profile.js` + `win.rs` | playful / quiet / hidden per foreground app |
 | AG-12 | Update nudge | rules | daily | `src/main.js` + `extras.rs` | bubble hint only |
 
 Only AG-1 and AG-3 call a model. Only AG-1 (through AG-2) can act on the

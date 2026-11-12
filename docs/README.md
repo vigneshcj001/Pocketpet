@@ -4,9 +4,11 @@
 |---|---|
 | Download page | <https://pocketpet-web.vercel.app/> (source: [Pocketpet-web](https://github.com/vigneshcj001/Pocketpet-web)) |
 | App repo | <https://github.com/vigneshcj001/Pocketpet> |
-| Releases | <https://github.com/vigneshcj001/Pocketpet/releases> — Windows `.exe`, macOS `.dmg` (Apple Silicon + Intel), Linux `.AppImage` / `.deb` |
+| Releases | <https://github.com/vigneshcj001/Pocketpet/releases> — Windows `.exe`, macOS `.dmg` (Apple Silicon + Intel), Linux `.deb` / `.rpm` / `.AppImage` |
 
 Platforms: **Windows** is the full experience (window-aware tricks need Win32/UIA); **macOS** and **Linux** get everything else (pet, games, customisation, task agent). See [Technical Design §1](06_Engineering/Technical_Design.md).
+
+**Start here for the AI design:** [AI System Design](03_Architecture/AI_System_Design.md) — the agent, its models, guardrails, evaluation and operations on one page, checked against an AI-system-design checklist with links to every detail document.
 
 - [01_Product / PRD](01_Product/PRD.md)
 - [01_Product / Business Requirements](01_Product/Business_Requirements.md)
@@ -14,6 +16,7 @@ Platforms: **Windows** is the full experience (window-aware tricks need Win32/UI
 - [02_Requirements / SRS](02_Requirements/SRS.md)
 - [02_Requirements / NFR](02_Requirements/NFR.md)
 - [02_Requirements / Acceptance Criteria](02_Requirements/Acceptance_Criteria.md)
+- [03_Architecture / AI System Design](03_Architecture/AI_System_Design.md)
 - [03_Architecture / System Architecture](03_Architecture/System_Architecture.md)
 - [03_Architecture / Agentic Architecture](03_Architecture/Agentic_Architecture.md)
 - [03_Architecture / Database Design](03_Architecture/Database_Design.md)
@@ -36,6 +39,7 @@ Platforms: **Windows** is the full experience (window-aware tricks need Win32/UI
 - [07_Testing / Agent Evaluation](07_Testing/Agent_Evaluation.md)
 - [07_Testing / Security Testing](07_Testing/Security_Testing.md)
 - [07_Testing / Performance Testing](07_Testing/Performance_Testing.md)
+- [07_Testing / Codebase Review](07_Testing/Codebase_Review.md)
 - [08_DevOps / CI CD](08_DevOps/CI_CD.md)
 - [08_DevOps / Deployment](08_DevOps/Deployment.md)
 - [08_DevOps / Environment Config](08_DevOps/Environment_Config.md)

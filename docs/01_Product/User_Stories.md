@@ -34,12 +34,18 @@ Format: As a …, I want …, so that …. Priority: M (must), S (should), C (co
 | US-A10 | As a user, I want one key to stop everything. | M | Ctrl+Alt+X cancels tasks and closes the pet's browser. |
 | US-A11 | As a tinkerer, I want to use my own provider/model, including local ones. | M | Claude/OpenAI/Groq/Gemini/DeepSeek/Ollama/custom; model list fetched; keys in the OS keychain. |
 | US-A12 | As a user, I want a log of what it did. | S | Per-task log file; History › Log opens it. |
+| US-A13 | As a user, I want to ask the pet directly without opening a window. | S | Chat bar beside the pet sends the text to Tasks, which runs it with approvals and progress. |
+| US-A14 | As a user, I want to save and reuse prompts. | C | Recipes run now or fill a schedule; up to 30. |
+| US-A15 | As a user, I want tasks to wait their turn. | C | A second task while one runs joins a queue (≤ 20) that survives restarts. |
+| US-A16 | As a user, I want a tidy summary of each result. | S | Result card lists links, prices, dates, approvals and duration; opens the audit log. |
 
 ## Platform
 
 | ID | Story | Pri | Acceptance |
 |----|-------|-----|------------|
-| US-X1 | As a user, I want an installer and updates. | M | Windows NSIS per-user installer, macOS DMG, Linux AppImage/deb; download page picks the right one; update check finds GitHub releases and the asset for this OS. |
+| US-X1 | As a user, I want an installer and updates. | M | Windows NSIS per-user installer, macOS DMG, Linux `.deb` / `.rpm` / AppImage; download page picks the right one (and the right Mac chip when the browser tells); update check finds GitHub releases and the asset for this OS and install type. |
 | US-X2 | As a Mac or Linux user, I want the pet too. | S | Same pet, games, customisation and agent; window tricks greyed out; keys in Keychain / Secret Service. |
-| US-X2 | As a user, I want backup/restore. | S | Export/import JSON without keys. |
-| US-X3 | As a user, I want hotkeys I can change. | S | All bindings editable; conflicts reported. |
+| US-X3 | As a user, I want backup/restore. | S | Export/import JSON without keys. |
+| US-X4 | As a user, I want hotkeys I can change. | S | All bindings editable; conflicts reported. |
+| US-X5 | As a Linux user on Wayland, I want the pet to behave as on X11. | S | Runs through XWayland automatically; cursor-following and click-through work; opt-out variable documented. |
+| US-X6 | As a user, I want to dress my pet on the website and send it to the app. | C | `pocketpet://` link opens Settings with the preset; JSON import as fallback; no credentials transferred. |

@@ -4,7 +4,7 @@ Local-only signals (no telemetry):
 
 | Signal | Where | What to look for |
 |--------|-------|------------------|
-| Task outcomes | Tasks › History; `tasks/<id>.log` | error rate, repeated "declined", timeouts |
+| Task outcomes | Tasks › History (status, duration, approvals); `tasks/<id>.log` | error rate, repeated "declined", timeouts, completion rate vs goal G2 |
 | Spend | Tasks › Limits & sites (today), `usage` events | approaching cap, unexpected cost per task |
 | Crashes | `<data dir>/logs/panic-*.log` | any file = investigate |
 | Provider health | error text in task log ("429", "5xx", "no longer available") | switch model/provider |

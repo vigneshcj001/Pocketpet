@@ -1,11 +1,11 @@
 # PocketPet — Business Requirements
 
-Version 0.1 · September 2026 · Owner: vigneshcj001
+Version 0.2.4 · November 2026 · Owner: vigneshcj001
 
 ## 1. Vision
 
 A desktop companion that is fun to have around all day and quietly useful: it
-lives on the Windows desktop, reacts to you, reminds you to take breaks — and
+lives on the Windows, macOS or Linux desktop, reacts to you, reminds you to take breaks — and
 when you ask, runs errands on the web for you (research, shopping up to the
 payment step, bookings up to confirmation) while you watch and approve.
 
@@ -38,19 +38,25 @@ payment step, bookings up to confirmation) while you watch and approve.
   milestones, companion pet, custom-image pets, colours, accessories.
 - Wellbeing: break reminders with snooze/countdown/cycles, focus mode
   (fullscreen apps, quiet hours), toasts.
-- Task agent: text or voice task → web search, page reading, real browser
-  driving; streams progress; plans; asks for approval at commitment points;
-  memory of preferences; schedules; audit logs; spend and purchase caps.
-- Distribution: Windows NSIS installer, macOS DMG, Linux AppImage/deb via GitHub Releases and the download page <https://pocketpet-web.vercel.app/>; run-at-startup, update
-  check against GitHub Releases, CI build on push.
+- Task agent: text or voice task, the pet's chat bar, saved recipes, a queue
+  or a schedule → web search, page reading, real browser driving; streams
+  progress; plans; asks for approval at commitment points; memory of
+  preferences; result cards; audit logs; spend and purchase caps.
+- Personalisation: per-app pet modes (Windows), mood and friendship, sprite
+  sheets, appearance sent from the website through a `pocketpet://` link.
+- Distribution: Windows NSIS installer, macOS DMG, Linux `.deb` / `.rpm` /
+  AppImage via GitHub Releases and the download page
+  <https://pocketpet-web.vercel.app/>; run-at-startup; SHA-256-verified update
+  check against GitHub Releases; CI build on push.
 
 ### Out of scope (for now)
 
-- macOS / Linux.
+- Window-aware tricks on macOS / Linux (the platforms do not expose other
+  apps' windows the way Win32 does; see roadmap item 5).
 - Multi-user or cloud sync (settings are local; backup is a file).
 - Autonomous payments. The pet never completes a purchase, login, or send
   without a human click.
-- App-store distribution / code signing.
+- App-store distribution. (Code signing is wired into CI and waits only for certificates.)
 
 ## 5. Business rules
 
@@ -69,7 +75,7 @@ payment step, bookings up to confirmation) while you watch and approve.
 
 - 30 scripted eval tasks (`tests/eval-tasks.json`) pass ≥ 90 % on two providers.
 - Zero gate bypasses in the eval (login/checkout URL and click gates).
-- All four packages (Windows, macOS ×2, Linux) build green in CI on every push; a tagged release publishes them; the in-app update check and the download page find them.
+- All six packages (Windows, macOS ×2, Linux .deb/.rpm/AppImage) build green in CI on every push; a tagged release publishes them; the in-app update check and the download page find them.
 - No crash reports in `logs/` over one week of daily use by the owner.
 
 ## 7. Risks
@@ -81,11 +87,12 @@ payment step, bookings up to confirmation) while you watch and approve.
 | Runaway cost | Daily cap, per-task cap, digest model, max steps |
 | Provider API drift (e.g. Gemini retiring models) | Model list fetched live; errors surfaced verbatim; default model kept current |
 | Cross-window settings races | Overlay is the single writer for history/spend |
+| Linux desktop variety (Wayland, NVIDIA, no tray) | XWayland by default, DMA-BUF renderer off, right-click menu as tray fallback |
 
 ## 8. Roadmap (candidate)
 
 1. Local speech-to-text without Windows online policy (whisper.cpp).
 2. Second-pet task runner and shared queue.
 3. Site-specific playbooks (Swiggy/Zomato/Amazon.in flows) to raise G2.
-4. Signed installer and Microsoft Store listing; Apple notarisation; Flatpak.
+4. Signed installer and Microsoft Store listing; Apple notarisation; Flatpak. (`.rpm` shipped in 0.2.4.)
 5. macOS/Linux parity for window-aware tricks where the platform allows (Accessibility API on macOS, X11 `_NET_CLIENT_LIST` on Linux).

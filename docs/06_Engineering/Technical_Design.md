@@ -1,20 +1,20 @@
 # Technical Design
 
-Version 0.1 · September 2026
+Version 0.2.4 · November 2026
 
 ## 1. Platform
 
 | Item | Requirement |
 |------|-------------|
-| OS | **Windows** 10 21H2+ / 11 x64 (full feature set) · **macOS** 11+ aarch64/x64 · **Linux** x86-64, X11 or XWayland |
+| OS | **Windows** 10 21H2+ / 11 x64 (full feature set) · **macOS** 11+ aarch64/x64 · **Linux** x86-64, X11, or Wayland through XWayland (automatic) |
 | Runtime | WebView2 (preinstalled on Win11; Evergreen installer otherwise) · WKWebView · WebKitGTK 4.1 |
-| Browser for the agent | Edge, Chrome or Brave (Chromium with `--remote-debugging-port`) |
-| Framework | Tauri 2 (Rust 1.77+; `windows` crate 0.58 on Windows; `device_query`, `rfd`, `arboard`, `auto-launch`, `keyring`, `tauri-plugin-global-shortcut` elsewhere), plain ES-module frontend, no bundler |
-| Build | `cargo tauri build` → `PocketPet_<ver>_x64-setup.exe` (NSIS, per-user) · `PocketPet_<ver>_aarch64.dmg` / `_x64.dmg` · `PocketPet_<ver>_amd64.AppImage` / `.deb`. No cross-compiling; CI runs one job per OS. |
+| Browser for the agent | Chrome, Edge, Brave, Chromium or Vivaldi (any Chromium with `--remote-debugging-port`); `POCKETPET_BROWSER` overrides the search |
+| Framework | Tauri 2 (Rust 1.90+; `windows` crate 0.58 on Windows; `device_query`, `rfd`, `arboard`, `auto-launch`, `keyring`, `tauri-plugin-global-shortcut` elsewhere), plain ES-module frontend, no bundler |
+| Build | `cargo tauri build` (targets filtered per OS) → `PocketPet_<ver>_x64-setup.exe` (NSIS, per-user) · `PocketPet_<ver>_aarch64.dmg` / `_x64.dmg` · `PocketPet_<ver>_amd64.AppImage` / `.deb` · `PocketPet-<ver>-1.x86_64.rpm`. No cross-compiling; CI runs one job per OS. |
 | Install / data | Windows `%LOCALAPPDATA%\PocketPet\` · macOS `/Applications/PocketPet.app`, data `~/Library/Application Support/PocketPet/` · Linux AppImage anywhere or `/usr/bin/pocketpet`, data `$XDG_DATA_HOME/PocketPet/` |
 | Distribution | <https://pocketpet-web.vercel.app/> ([Pocketpet-web](https://github.com/vigneshcj001/Pocketpet-web)) → GitHub Releases |
 
-Windows-only (greyed out elsewhere): window list and ledge walking, caption buttons, mischief mode, sit-on-active-window, fullscreen detection, offline Windows speech. macOS clips the overlay to the main display; pure Wayland cannot make a window click-through.
+Windows-only (greyed out elsewhere): window list and ledge walking, caption buttons, mischief mode, sit-on-active-window, fullscreen detection, per-app pet modes, offline Windows speech. macOS clips the overlay to the main display. Pure Wayland (no XWayland) cannot report the cursor or make a window click-through; PocketPet uses XWayland whenever it exists.
 
 ## 2. Architecture
 
@@ -23,7 +23,7 @@ Windows-only (greyed out elsewhere): window list and ledge walking, caption butt
 │  Rust                                                                        │
 │  lib.rs        commands, tray, overlay window, cursor thread, hotkeys        │
 │  geom.rs       Rect / WindowInfo / CaptionButtons (all platforms)            │
-│  paths.rs      per-OS data folder                                            │
+│  paths.rs      per-OS data folder, Linux env setup, clean child env          │
 │  ─ Windows ─                                                                 │
 │  win.rs        Win32: windows list, foreground, fullscreen, battery, pid→hwnd│
 │  titlebar.rs   caption-button geometry (TITLEBARINFOEX, UIA, guess)          │
@@ -65,7 +65,7 @@ Windows-only (greyed out elsewhere): window list and ledge walking, caption butt
 ### 3.2 Task agent
 
 - FR-A1 Providers: claude (Anthropic Messages), openai, groq, gemini, deepseek, ollama, custom (OpenAI Chat Completions). Base URL overridable per provider.
-- FR-A2 Keys stored via `CredWriteW` under `PocketPet/<provider>`; read on demand; never serialised.
+- FR-A2 Keys stored under `PocketPet/<provider>`: `CredWriteW` on Windows, `keyring` (Keychain / Secret Service) elsewhere with a `0600` file fallback; read on demand; never serialised.
 - FR-A3 Loop: max N turns (4–60); SSE streaming with one non-streaming retry; `pause_turn` (Anthropic) handled; usage → cost estimate per turn.
 - FR-A4 Tools (client-side): `web_search` (DuckDuckGo HTML), `fetch_page`, `open_browser`, `read_page`, `click`, `type_text`, `select_option`, `press_key`, `scroll`, `screenshot`, `wait`, `close_browser`, `ask_user`, `remember`, `set_plan`, `update_step`. Claude additionally gets Anthropic server tools `web_search_20260209` / `web_fetch_20260209`.
 - FR-A5 Gates (code, not prompt): sensitive click text/href regex, sensitive URL regex, secret-field detection, allow-list, per-site rules, purchase cap (page-total regex), spend cap, loop guard (3 identical calls), 15-minute answer timeout.
@@ -102,11 +102,11 @@ Windows-only (greyed out elsewhere): window list and ledge walking, caption butt
 
 Overlay/pet: `get_screen`, `set_hit_regions`, `set_interactive`, `set_capture_all`, `list_windows`, `get_foreground_window`, `get_caption_buttons`, `press_caption_button`, `get_environment`, `set_hidden`, `set_focus_hidden`, `set_low_power`, `sync_tray`, `set_hotkeys`, `get_autostart`, `set_autostart`, `notify`, `pick_image`, `save_backup`, `load_backup`, `open_settings`, `open_tasks`, `open_external`, `window_for_pid`, `quit_app`.
 
-Agent: `agent_providers`, `agent_set_key`, `agent_delete_key`, `agent_models`, `agent_run`, `agent_cancel`, `agent_pause`, `agent_reply`, `agent_kill`, `agent_close_browser`, `agent_open_site`, `agent_transcribe`, `windows_listen`, `memory_read`, `memory_write`, `open_task_log`, `open_logs_folder`, `diagnostics`, `check_update`, `install_update`.
+Agent: `agent_providers`, `agent_set_key`, `agent_delete_key`, `agent_models`, `agent_run`, `agent_cancel`, `agent_pause`, `agent_reply`, `agent_kill`, `agent_close_browser`, `agent_open_site`, `agent_transcribe`, `windows_listen`, `submit_inline_task`, `consume_task_intents`, `memory_read`, `memory_write`, `open_task_log`, `open_logs_folder`, `clear_logs`, `diagnostics`, `build_identity`, `check_update`, `install_update`, `take_pet_preset_link`.
 
 ### 5.2 Events (Rust → JS)
 
-`pet://cursor`, `pet://menu`, `pet://settings` (JS→JS broadcast), `pet://task`, `pet://voice`, `pet://clip`.
+`pet://cursor`, `pet://menu`, `pet://task`, `pet://task-intents`, `pet://update-progress`, `pet://preset-link`; JS→JS: `pet://settings` and the chat-bar coordination events. Full table in [API Architecture §2](../03_Architecture/API_Architecture.md).
 
 ### 5.3 `agent_run` request
 
@@ -120,20 +120,19 @@ Agent: `agent_providers`, `agent_set_key`, `agent_delete_key`, `agent_models`, `
 
 ## 6. Build, test, release
 
-```powershell
-.\run.ps1                 # debug run
+```bash
+./run.ps1   |  ./run.sh            # debug run (Windows | macOS/Linux)
+npm test                           # JS tests on any OS (node scripts/run-tests.mjs)
+npm run check                      # version consistency + JS tests
 cargo test --manifest-path src-tauri/Cargo.toml --lib
-node --test tests/features.test.mjs
 node tests/agent-eval.mjs gemini gemini-3.6-flash   # live, costs money
-.\build-installer.ps1     # Windows NSIS installer
-# macOS / Linux (on that OS):
-cargo install tauri-cli --version "^2" --locked
-cd src-tauri && cargo tauri build --bundles dmg            # or appimage,deb
+./build-installer.ps1              # Windows NSIS installer
+./build.sh                         # macOS .app/.dmg · Linux .deb/.rpm/.AppImage
 ```
 
 CI (`.github/workflows/build.yml`): JS tests once, then a matrix of
 `windows-latest` (NSIS), `macos-latest` (aarch64 DMG), `macos-15-intel` (x64 DMG)
-and `ubuntu-22.04` (AppImage + deb), each running `cargo test --lib` and
+and `ubuntu-22.04` (AppImage + deb + rpm), each running `cargo test --lib` and
 `cargo tauri build`; tag `v*` publishes a GitHub Release with all packages,
 which the in-app update check reads
 (`/repos/vigneshcj001/Pocketpet/releases/latest`) and the download page
@@ -141,8 +140,8 @@ which the in-app update check reads
 
 ## 7. Constraints & known limits
 
-- Window-aware features are Win32/UIA only; `unix.rs` returns empty for them. macOS overlay covers the main display only; Linux click-through needs X11/XWayland.
-- Builds are unsigned (SmartScreen / Gatekeeper prompts on first run).
+- Window-aware features are Win32/UIA only; `unix.rs` returns empty for them. macOS overlay covers the main display only; Linux click-through and cursor-following need X11/XWayland (chosen automatically).
+- Windows signing and macOS notarisation run in CI only when certificates are configured; otherwise SmartScreen / Gatekeeper prompt on first run (macOS builds are ad-hoc signed).
 - DuckDuckGo HTML endpoint is unofficial; may throttle. Claude uses Anthropic's tools instead.
 - Windows speech needs "Online speech recognition" enabled; otherwise Whisper needs a key.
 - Gemini's OpenAI endpoint requires `thought_signature` echo on tool calls (handled), and retires models often (default tracked).

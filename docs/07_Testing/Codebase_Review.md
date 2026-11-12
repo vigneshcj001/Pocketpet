@@ -1,4 +1,30 @@
-# Codebase review — 2026-09-28
+# Codebase reviews
+
+## 2026-11-12 — cross-platform pass (0.2.4)
+
+Scope: Linux and macOS behaviour of the native layer, build and test tooling,
+the website's download logic, and the documentation set (checked against the
+[AI System Design](../03_Architecture/AI_System_Design.md) checklist).
+
+Fixed:
+- A Wayland-only Linux session aborted the app (`DeviceState::new()` panics
+  without X; release builds use `panic = "abort"`).
+- Wayland sessions had no cursor-following or click-through; XWayland is now
+  preferred automatically.
+- Transparent overlay drawn black on NVIDIA / some compositors (DMA-BUF).
+- AppImage library paths leaked into the agent's browser and `xdg-open`.
+- `.deb` installs were offered an AppImage update; `.rpm` did not exist.
+- AppImages did not register `pocketpet://`.
+- The test command relied on a shell glob that PowerShell and Node 20 do not
+  expand; frontend files were read as CommonJS on Node 20.
+- Docs: contradictions on macOS/Linux scope, stale events (`pet://voice`,
+  `pet://clip`), duplicate requirement/story IDs, undocumented features.
+
+Verification: 33 JS tests pass; website type-check, lint and build pass;
+versions agree (0.2.4). Rust changes were reviewed by hand but not compiled on
+the review machine — CI on all three OSes is their first build.
+
+## 2026-09-28
 
 Scope: the desktop frontend, native overlay and shortcuts, browser/task agent,
 settings and migrations, and build/release workflow. This is a code review and

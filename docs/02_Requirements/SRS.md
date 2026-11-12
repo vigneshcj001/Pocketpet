@@ -1,6 +1,6 @@
 # Software Requirements Specification
 
-Version 0.1. Functional requirements are numbered FR-*; non-functional live in `NFR.md`.
+Version 0.2.4. Functional requirements are numbered FR-*; non-functional live in `NFR.md`.
 
 ## 1. Overlay and pet
 
@@ -16,6 +16,9 @@ Version 0.1. Functional requirements are numbered FR-*; non-functional live in `
 - FR-O10 Low-power: 15 fps timer loop when hidden/asleep/enabled.
 - FR-O11 Tray menu mirrors core actions; radio groups synced from the frontend.
 - FR-O12 Global hotkeys, rebindable: hide/show, feed, toy, settings, tasks, voice, clipboard task, kill switch.
+- FR-O13 Per-app pet modes (Windows): foreground executable → playful / quiet / hidden (≤ 30 rules); fullscreen focus wins.
+- FR-O14 Mood and friendship derive from interaction counts and hunger; nearby companions greet each other.
+- FR-O15 Custom pets accept single images or four-frame horizontal sprite sheets (idle, walk, sleep, happy).
 
 ## 2. Task agent
 
@@ -31,19 +34,25 @@ Version 0.1. Functional requirements are numbered FR-*; non-functional live in `
 - FR-A10 Voice input via Windows `SpeechRecognizer` or Whisper (Groq/OpenAI); read-aloud via `speechSynthesis` with per-pet voice.
 - FR-A11 Schedules: daily/weekdays/weekends at HH:MM, once per day, only when idle.
 - FR-A12 Memory: `memory.md` (≤ 6 000 chars), appended by the `remember` tool, editable.
-- FR-A13 Pause/resume, cancel, kill switch (all tasks + browser).
+- FR-A13 Pause/resume, cancel, kill switch (all tasks + browser). Cancellation interrupts an in-flight provider request.
+- FR-A14 Entry points: Tasks window, the overlay chat bar (`submit_inline_task`, 1–2 000 chars), hotkeys (voice, clipboard) and schedules all become task intents that the Tasks window consumes once, in order, after its listeners are ready.
+- FR-A15 Recipes (≤ 30) run immediately or fill a schedule; a task queue (≤ 20) persists across restarts.
+- FR-A16 Result cards: links, prices and dates found in the answer, approval count, duration, audit-log link; stored in history.
+- FR-A17 Keyboard submission (Enter in a form, `press_key` submit) follows the same approval policy as clicking the submit control.
 
 ## 3. Settings and data
 
 - FR-S1 Single validated schema (`preferences.js::normalizeSettings`); every write is a patch merged onto a fresh read.
 - FR-S2 The overlay is the sole writer of task history and spend.
 - FR-S3 Backup export/import (`{app, version, settings}`), keys excluded; reset.
+- FR-S5 Website pet presets: `pocketpet://pet/apply?…` (≤ 4 096 chars) or a JSON file; appearance only, never credentials or trust rules.
 - FR-S4 Settings window: General, Pets, Focus & screen, Breaks, Controls, Dashboard, Backup, About & updates. Tasks window: Task, History, Schedules, Memory, Providers & keys, Limits & sites. Task tab order: provider readiness → compose → approval/question card → answer → progress (state chip, elapsed, plan, timestamped log, collapsible screenshot) → examples.
 
 ## 4. Distribution
 
 - FR-D0 Platform split: everything that inspects other apps' windows (window list, caption buttons, mischief, sit-on-active-window, fullscreen detection, Windows speech) is Windows-only and greyed out elsewhere; all other features are identical.
-- FR-D1 Windows: NSIS per-user installer, run at startup via HKCU Run. macOS: DMG, LaunchAgent. Linux: AppImage and deb, XDG autostart entry.
-- FR-D2 Update check against GitHub Releases; download from GitHub hosts only; the asset for the running OS/arch is chosen (`-setup.exe`, `_aarch64.dmg` / `_x64.dmg`, `.AppImage`); installer launched and app exits.
+- FR-D1 Windows: NSIS per-user installer, run at startup via HKCU Run. macOS: DMG, LaunchAgent. Linux: `.deb`, `.rpm` and AppImage, XDG autostart entry.
+- FR-D2 Update check against GitHub Releases; download from GitHub release URLs only, verified against the release's SHA-256 digest. Asset by OS, arch and install type: `-setup.exe` (launched, app exits), `_aarch64.dmg` / `_x64.dmg` (opened), `.AppImage` (made executable, folder revealed) or `.deb` / `.rpm` (opened in the software installer).
 - FR-D3 Download page at https://pocketpet-web.vercel.app/ lists all packages and links each to the latest release asset.
-- FR-D3 Crash logs written by a panic hook; logs folder and diagnostics text reachable from Settings.
+- FR-D4 Crash logs written by a panic hook; logs folder, clear-logs and diagnostics text reachable from Settings.
+- FR-D5 Linux runtime: prefer XWayland on Wayland sessions (`POCKETPET_NATIVE_WAYLAND` opts out); disable WebKit's DMA-BUF renderer unless set; launch host programs without AppImage library paths; survive a missing X display or tray.

@@ -16,8 +16,8 @@
 - The model is told to store durable preferences (address, diet, favourites),
   not transient task state.
 - Full memory is injected verbatim; at the cap the tool asks the owner to tidy.
-- Memory is included in backups? No — it is a file, not settings; export it by
-  copying `memory.md`. (Candidate: add to backup v2.)
+- Memory is not in backups: it is a file, not settings; export it by copying
+  `memory.md`. (Candidate: add to backup v2.)
 - Follow-up context is dropped when the provider wire changes (message
   formats differ) and trimmed so it never starts on a tool result.
 

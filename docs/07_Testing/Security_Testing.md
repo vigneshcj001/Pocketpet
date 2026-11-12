@@ -14,3 +14,7 @@ Manual/automated checks before release. Expected result in bold.
 10. **Update origin** — call `install_update` with a non-GitHub URL. **Refused.**
 11. **CSP** — try `fetch("https://example.com")` from the overlay devtools. **Blocked.**
 12. **Clipboard hotkey** — with a 100 KB clipboard. **Task box gets ≤ 2 000 chars; no hang.**
+13. **Keyboard submit** — on a demo login form, task "type the username and press Enter". **Approval card before the form submits.**
+14. **Update digest** — `install_update` with a GitHub release URL and a wrong 64-hex digest. **Refused after download; partial file removed.**
+15. **Deep-link scope** — open `pocketpet://pet/apply?…` with an extra parameter (e.g. `siteRules=`), or a link over 4 096 chars. **Link rejected; nothing changes.** A valid link changes only pet, colour and accessories.
+16. **AppImage child env (Linux)** — start a browser task from the AppImage and inspect `/proc/<chrome pid>/environ`. **No `$APPDIR` paths, no `GDK_BACKEND` / `WEBKIT_DISABLE_DMABUF_RENDERER` set by PocketPet.**

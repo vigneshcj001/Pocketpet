@@ -1,6 +1,6 @@
 # Agent Workflows and App Flow
 
-Version 0.1 · September 2026
+Version 0.2.4 · November 2026
 
 ## 1. Launch
 
@@ -82,7 +82,7 @@ sequenceDiagram
   participant U as User
   T->>P: breakMins elapsed
   alt hidden or quiet
-    P->>U: Windows toast
+    P->>U: desktop notification
   else free
     P->>P: walk to screen centre, stretch, countdown pill
     P->>U: "Break time… click me when back / right-click to snooze"
@@ -172,4 +172,21 @@ answer narrated + toast + history.
 
 Daily (or Settings › About & updates › Check for updates): `GET releases/latest` → compare tag with
 `CARGO_PKG_VERSION` → pet mentions it → **Download & install** fetches the
-asset for this OS (`-setup.exe` / `.dmg` / `.AppImage`) to the temp folder, launches it, exits the app.
+asset for this OS and install type to the temp folder with live progress
+(`pet://update-progress`) and checks its SHA-256 against the release digest.
+Windows launches the `-setup.exe` and exits; macOS opens the `.dmg`; Linux
+reveals a new `.AppImage` or opens the `.deb` / `.rpm` in the software
+installer. A missing or mismatched digest is refused.
+
+## 10. Other ways a task starts
+
+```mermaid
+flowchart LR
+  C[Chat bar on the pet] -->|submit_inline_task| Q[PendingTaskIntents]
+  H[Ctrl+Alt+V / Ctrl+Alt+D] --> Q
+  S[Schedule due] -->|submit_inline_task scheduled| Q
+  Q -->|pet://task-intents wake-up| T[Tasks window]
+  T -->|consume_task_intents once, in order| R{task running?}
+  R -- no --> A[agent_run]
+  R -- yes --> U[taskQueue, persisted] --> A
+```

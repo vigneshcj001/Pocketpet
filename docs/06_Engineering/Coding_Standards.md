@@ -7,6 +7,7 @@
 - Errors as `Result<_, String>` at the command boundary with user-readable messages; no `unwrap` on external data.
 - Long-running/dialog commands are `async` (`spawn_blocking` for blocking APIs).
 - Regex via `regex-lite`; compile inside the function unless hot.
+- Programs that belong to the user's system (browser, `xdg-open`, `open`) start through `paths::host_command` / `paths::open_with_desktop`, never `Command::new`, so AppImage library paths never leak into them.
 - Comments explain *why* (see existing style); module docs at the top of each file.
 
 ## JavaScript
@@ -14,7 +15,8 @@
 - All persisted state through `preferences.js` (`readSettings`/`writeSettings`); never `localStorage.setItem` elsewhere except `STORAGE_KEY` resets.
 - DOM built with `createElement`; `textContent` for user/model text (no `innerHTML` with untrusted strings).
 - Event listeners registered once at module top; guards `state.mode === "free"`, `!state.hidden`, `!state.quiet` for autonomous behaviour.
-- Files: `main.js` (overlay), `settings.js`, `tasks.js`, pure logic in `preferences.js` / `behavior.js` / `games.js`.
+- Files: `main.js` (overlay), `settings.js`, `tasks.js`, pure logic in `preferences.js` / `behavior.js` / `games.js` / `schedule.js` / `pet-preset.js` / `platform.js`.
+- OS-specific wording and feature flags come from `platform.js` (`OS`, `IS_WINDOWS`, `platformFor`), not ad-hoc user-agent checks.
 
 ## Naming
 - Commands `snake_case`; JS args camelCase (Tauri converts); nested structs `rename_all = "camelCase"`.
@@ -23,7 +25,8 @@
 
 ## Tests
 - Every gate/regex/parser has a unit test next to it.
-- Pure JS modules have `node --test` coverage; the DOM/ids check test must pass after UI changes.
+- Pure JS modules have `node --test` coverage (`npm test`); the DOM/ids check test must pass after UI changes.
+- Shell scripts are bash with LF endings (enforced by `.gitattributes`) and must pass `bash -n`.
 
 ## Commits
 Imperative subject ≤ 72 chars, body explains why and any user-visible change; trailer `Co-Authored-By` when AI-assisted.

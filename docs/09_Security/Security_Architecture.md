@@ -18,10 +18,12 @@
 | Key theft from settings/backups/logs | keys never serialised; diagnostics list names only |
 | Unwanted purchase/login/send | code gates + human approval + purchase cap + site rules |
 | Prompt injection from pages | framing as tool data, prompt rule, gates still apply |
-| Malicious update | GitHub-only download origin; size sanity check |
+| Malicious update | this repo's GitHub release URLs only; SHA-256 must equal the release digest; size and completeness checks |
 | Runaway spend | per-turn accounting, daily cap, step cap |
 | Clipboard/voice abuse | hotkeys are user-bound; clipboard text is truncated and only fills a text box |
-| Local file access by the model | no filesystem tools exposed |
+| Local file access by the model | no filesystem or shell tools exposed |
+| Library injection into user programs (AppImage) | host programs launched with `$APPDIR` paths and PocketPet's env overrides removed |
+| Malicious `pocketpet://` link | ≤ 4 096 chars, exactly `pet`/`color`/`accessories` or rejected; applies appearance only — keys, rules and caps cannot be set by a link |
 
 ## Residual risks
 Regex-based gates can miss unusual button labels; the user watches the browser

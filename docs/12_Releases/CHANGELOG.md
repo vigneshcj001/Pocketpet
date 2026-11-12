@@ -24,6 +24,11 @@
 - `scripts/run-tests.mjs` replaces the shell glob `tests/*.test.mjs`, which PowerShell and cmd do not expand. CI uses it.
 - New `tests/platform.test.mjs`; Rust tests for `paths.rs`.
 
+### Documentation
+- New [AI System Design](../03_Architecture/AI_System_Design.md): the agent on one page, checked against an AI-system-design checklist (requirements, architecture, models, context, retrieval, tools, guardrails, evaluation, operations, governance) with seven open gaps.
+- OWASP Top 10 for LLM applications mapped in AI Security; context budget in Prompt Design; fallback behaviour in Model Strategy; release gate and online metrics in Evaluation Strategy; responsible-use section in AI Governance.
+- Brought every doc up to 0.2.4: macOS/Linux no longer listed as out of scope, `pet://voice`/`pet://clip` replaced by `pet://task-intents`, new commands and events, recipes/queue/chat bar/result cards, per-app modes, website presets, SHA-256 updates, keyboard-submit gate, `.rpm`, Wayland, environment variables; duplicate IDs fixed.
+
 ## 0.2.2 – 0.2.3 (local changes; not published)
 
 - Settings now shows installed build identity beside latest published release and explains tagged-release requirement.

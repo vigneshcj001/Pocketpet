@@ -9,9 +9,9 @@ Client tools (both wires) defined in `agent.rs::tool_specs`; executed in `run_to
 | open_browser | {url} | launches/reuses browser, navigates | allow-list, sensitive URL, site rule | page view |
 | read_page | — | none | — | page view (+ screenshot if thin) |
 | click | {ref} | clicks element | sensitive click, purchase cap, site rule, allow-list after nav | page view |
-| type_text | {ref, text, submit?} | types | secret field | page view |
+| type_text | {ref, text, submit?} | types | secret field; `submit` uses the click policy of the form's submit control | page view |
 | select_option | {ref, value} | sets select | — | confirmation text |
-| press_key | {key} | key event | — | "pressed" |
+| press_key | {key} | key event | Enter/submit keys in a form use the click policy (`keyboard_sensitive`) | "pressed" |
 | scroll | {direction} | scrolls | — | position |
 | screenshot | — | none | — | "attached" + JPEG |
 | wait | {seconds ≤ 10} | sleeps | — | "waited" |

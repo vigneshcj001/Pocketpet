@@ -1,6 +1,6 @@
 # Guardrails
 
-All enforced in Rust (`agent.rs`) unless noted. Unit tests: `gates_catch_money_and_secrets`, `sensitive_urls_are_caught`, `allow_list_matches_subdomains_only`, `site_rules_prefer_the_most_specific_domain`, `page_total_finds_the_order_total`.
+All enforced in Rust (`agent.rs`) unless noted. Unit tests: `gates_catch_money_and_secrets`, `sensitive_urls_are_caught`, `allow_list_matches_subdomains_only`, `site_rules_prefer_the_most_specific_domain`, `page_total_finds_the_order_total`, `keyboard_submission_uses_the_click_policy_without_gating_search_or_typing`, `cancellation_interrupts_a_pending_request_and_cannot_report_success`.
 
 | # | Guardrail | Where | Behaviour |
 |---|-----------|-------|-----------|
@@ -15,9 +15,12 @@ All enforced in Rust (`agent.rs`) unless noted. Unit tests: `gates_catch_money_a
 | G9 | Loop guard | 3 identical tool calls | tool error |
 | G10 | Answer timeout | 15 min on ask/confirm | task stops |
 | G11 | Kill switch | hotkey/button | cancel all + close browser |
-| G12 | Download origin | update package (any OS) only from GitHub hosts | refused otherwise |
+| G12 | Update integrity | update package only from this repo's GitHub release URLs, matching this OS/install type, SHA-256 equal to the release digest, size ≥ 100 KB and complete | refused otherwise |
 | G13 | Memory cap | 6 000 chars | tool error |
 | G14 | Prompt injection | prompt rule + tool-message framing + G1/G2 | human still needed for any commitment |
 | G15 | Key exposure | keys only read in Rust; diagnostics list names only | — |
+| G16 | Keyboard submission | Enter/submit in a form via `press_key` or `type_text{submit}` | same approval as clicking the submit control |
+| G17 | Cancellation | Cancel/kill during a provider call | request dropped; no late "done" |
+| G18 | Host-process isolation | browser and `xdg-open` launched with a clean environment | AppImage libraries never leak into the user's programs |
 
-Not guaranteed: detecting every possible "pay" button on every site (regex-based). Mitigation: allow-list + purchase cap + user watching the browser.
+Not guaranteed: detecting every possible "pay" button on every site (regex-based, English-centric). Mitigation: allow-list + purchase cap + user watching the browser. Tracked as gap 5 in [AI System Design](../03_Architecture/AI_System_Design.md).

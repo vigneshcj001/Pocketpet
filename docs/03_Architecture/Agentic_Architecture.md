@@ -1,5 +1,8 @@
 # Agentic Architecture
 
+See [AI System Design](AI_System_Design.md) for the one-page overview and
+design checklist.
+
 ## Pattern
 
 Single tool-using agent (ReAct-style loop) with:
@@ -9,6 +12,10 @@ Single tool-using agent (ReAct-style loop) with:
 - **Human-in-the-loop**: `ask`/`confirm` block the loop on a oneshot channel until the Tasks window answers.
 - **Digester** (optional): a cheaper model condenses long tool outputs.
 - **Narrator**: the overlay maps agent events to pet behaviour (not an LLM).
+- **Dispatcher**: the Tasks window owns every run. The chat bar, hotkeys and
+  schedules push task intents into a Rust queue (`PendingTaskIntents`); Tasks
+  drains it once its listeners exist, so nothing is lost or run twice. A second
+  task while one runs joins the persisted queue.
 
 ## Loop
 
@@ -40,7 +47,7 @@ for turn in 0..max_turns:
 | Failure | Handling |
 |---------|----------|
 | provider 4xx/5xx | error surfaced with provider message; task ends |
-| stream broken | one non-streaming retry |
+| stream broken | one non-streaming retry, unless part of the answer is already on screen (then the error is shown, to avoid duplicated text) |
 | CDP timeout | one retry on click/navigate |
 | element ref stale | tool error "call read_page again" |
 | empty page view | screenshot attached |
@@ -48,6 +55,8 @@ for turn in 0..max_turns:
 | 3 identical calls | loop-guard error |
 | owner silent 15 min | task ends |
 | kill switch | all tasks cancelled, browser closed |
+| cancel during a provider call | the pending request is dropped (`until_cancelled`); a late success is never reported |
+| provider down / rate-limited | task ends with the provider message; no automatic failover (gap 3 in AI System Design) |
 
 ## Extension points
 

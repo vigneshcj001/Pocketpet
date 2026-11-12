@@ -11,7 +11,8 @@ Top level (abridged):
 | pet, companion | id | built-in id or `custom:<id>` |
 | size, speed, toy, follow, mischief, realClick, sound, volume, chatter | scalars | |
 | hunger, buddyHunger, hungerAt, hungerRate, pauseHungerOffline, showHunger | | hunger model |
-| customPets[] | {id, name, image(dataURL ≤ 1.8 MB)} | ≤ 12 |
+| customPets[] | {id, name, image(dataURL ≤ 1.8 MB), frames: 1 \| 4} | ≤ 12; 4 = horizontal sprite sheet |
+| appProfiles[] | {app: "<name>.exe", mode: playful \| quiet \| hide} | ≤ 30, Windows only |
 | petNames{}, personalities{}, colors{}, accessories{} | per pet id | colour = hex; accessories = [{emoji, slot, size, x, y}] ≤ 4 |
 | profiles{} | per pet id → {meals, pats, pets, fetches, games, wins, breaks, tasks, firstRun, journal[≤40]} | |
 | stats | global counters | legacy + totals |
@@ -21,12 +22,14 @@ Top level (abridged):
 | speechSize, speechDuration, lowPower | | |
 | shortcuts{toggle, feed, play, settings, tasks, kill, voice, clip} | strings | |
 | agent{…} | see below | |
-| tasks[] | {id, at, task, provider, model, status, answer(≤8 k)} ≤ 50 | history |
+| tasks[] | {id, at, task, provider, model, status: done \| error \| cancelled, answer(≤8 k), approvals, durationMs} ≤ 50 | history and result cards |
 
 `agent`: provider, models{provider→model}, baseUrls{}, maxTurns, narrate,
 browser, allowedSites[], siteRules{domain→allow|ask|never}, dailyCapUsd,
 purchaseCap, spend{date, usd}, digestModel, stream, speak, voice, voiceEngine,
-schedules[{id, task, time, days, enabled, lastRun}], updateCheck, lastUpdateCheck.
+schedules[{id, task, time, days, catchUp: skip | run, enabled, lastRun}],
+recipes[{id, name, task}] ≤ 30, taskQueue[{id, task, scheduled}] ≤ 20,
+updateCheck, lastUpdateCheck.
 
 Write discipline: `writeSettings(patch)` = read → shallow-merge (nested maps
 merged one level) → normalize → write. Overlay is the sole writer of `tasks`
@@ -49,8 +52,8 @@ Read on demand; never cached in JS.
 | Path | Format | Retention |
 |------|--------|-----------|
 | `memory.md` | markdown bullets ≤ 6 000 chars | until edited/cleared |
-| `tasks/<id>.log` | TSV `epoch\tkind\ttext` | forever (user may delete) |
-| `logs/panic-<ts>.log` | text | forever |
+| `tasks/<id>.log` | TSV `epoch\tkind\ttext` | until Settings › Backup › Clear logs (or deleted by hand) |
+| `logs/panic-<ts>.log` | text | until Settings › Backup › Clear logs |
 | `browser/` | Chromium profile | forever; "Close the pet's browser" keeps it |
 
 ## 4. Run at startup
