@@ -23,7 +23,7 @@ mod unix;
 #[cfg(not(windows))]
 use unix::{extras, startup, titlebar, win};
 
-pub use paths::data_dir;
+pub use paths::{data_dir, prepare_linux_environment};
 
 #[cfg(windows)]
 use std::ffi::c_void;
@@ -717,25 +717,30 @@ async fn install_update(url: String, sha256: String, app: AppHandle) -> Result<S
     Ok(String::new())
 }
 
-/// macOS mounts the .dmg; Linux gets an executable AppImage in a revealed
-/// folder. Replacing the running app is the user's step here, so PocketPet
-/// stays open and says where the update went.
+/// macOS mounts the .dmg. On Linux an AppImage install gets an executable
+/// AppImage in a revealed folder, while a .deb / .rpm install opens the package
+/// in the system's software installer. Replacing the running app is the
+/// user's step here, so PocketPet stays open and says where the update went.
 #[cfg(not(windows))]
 #[tauri::command]
 async fn install_update(url: String, sha256: String, app: AppHandle) -> Result<String, String> {
     let path = extras::download_update(&url, &sha256, &app).await?;
     #[cfg(target_os = "linux")]
-    let target = {
+    let (target, advice) = if extras::linux_package() == "AppImage" {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
-        path.parent().map(|p| p.display().to_string()).unwrap_or_default()
+        (path.parent().map(|p| p.display().to_string()).unwrap_or_default(),
+            "Quit PocketPet and replace the old AppImage with it.")
+    } else {
+        (path.display().to_string(),
+            "Install it with your software installer (or apt / dnf), then restart PocketPet.")
     };
     #[cfg(not(target_os = "linux"))]
-    let target = path.display().to_string();
+    let (target, advice) = (path.display().to_string(), "Quit PocketPet and drag the new app into Applications.");
     if !open_path(&target) {
-        return Err(format!("Downloaded to {}, but could not open it.", path.display()));
+        return Err(format!("Downloaded to {}, but could not open it. {advice}", path.display()));
     }
-    Ok(format!("Downloaded to {}. Quit PocketPet and replace the old app with it.", path.display()))
+    Ok(format!("Downloaded to {}. {advice}", path.display()))
 }
 
 #[cfg(windows)]
@@ -752,8 +757,7 @@ fn open_path(target: &str) -> bool {
 /// `open` on macOS, `xdg-open` elsewhere: files, folders and URLs alike.
 #[cfg(not(windows))]
 fn open_path(target: &str) -> bool {
-    let program = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-    std::process::Command::new(program).arg(target).spawn().is_ok()
+    paths::open_with_desktop(target)
 }
 
 /// HWND + rect of the top-level window belonging to a process, for the pet to
@@ -984,8 +988,16 @@ fn spawn_cursor_thread(app: AppHandle) {
     std::thread::spawn(move || {
         let mut last_pos = (i32::MIN, i32::MIN);
         let mut click_through = true;
+        // X11 (or XWayland) on Linux; `new()` would panic, and with
+        // `panic = "abort"` take the whole app down, on a Wayland-only session.
+        #[cfg(target_os = "linux")]
+        let device = device_query::DeviceState::checked_new();
+        #[cfg(target_os = "macos")]
+        let device = Some(device_query::DeviceState::new());
         #[cfg(not(windows))]
-        let device = device_query::DeviceState::new();
+        if device.is_none() {
+            eprintln!("PocketPet: no X11 display; cursor following and click-through are off. Run under XWayland (GDK_BACKEND=x11).");
+        }
 
         loop {
             let delay = app.try_state::<Flags>().map(|flags| {
@@ -1002,8 +1014,12 @@ fn spawn_cursor_thread(app: AppHandle) {
             let (x, y) = win::cursor_pos();
             #[cfg(not(windows))]
             let (x, y) = {
+                let Some(device) = device.as_ref() else {
+                    std::thread::sleep(Duration::from_millis(500));
+                    continue;
+                };
                 // macOS reports points; the overlay works in physical pixels.
-                let (cx, cy) = win::read_cursor(&device);
+                let (cx, cy) = win::read_cursor(device);
                 let scale = if cfg!(target_os = "macos") { window.scale_factor().unwrap_or(1.0) } else { 1.0 };
                 let p = ((cx as f64 * scale).round() as i32, (cy as f64 * scale).round() as i32);
                 win::publish_cursor(p.0, p.1);
@@ -1183,9 +1199,11 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayToggles> {
         ],
     )?;
 
+    // Some Linux desktops (GNOME without the AppIndicator extension) have no
+    // tray at all; the pet's own right-click menu still offers everything.
     if let Some(tray) = app.tray_by_id("pocketpet-tray") {
         tray.set_menu(Some(menu))?;
-        tray.set_show_menu_on_left_click(true)?;
+        let _ = tray.set_show_menu_on_left_click(true);
     }
     Ok(TrayToggles { follow, mischief, real_click, autostart, hide, radios })
 }
@@ -1278,7 +1296,13 @@ pub fn run() {
         ])
         .setup(|app| {
             let handle = app.handle().clone();
-            if let Some(urls) = app.deep_link().get_current()? {
+            // The .deb/.rpm register pocketpet:// through their .desktop file;
+            // an AppImage has no installer, so register it at runtime.
+            #[cfg(target_os = "linux")]
+            if std::env::var_os("APPIMAGE").is_some() {
+                let _ = app.deep_link().register("pocketpet");
+            }
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
                 receive_pet_preset(&handle, urls.iter().map(ToString::to_string));
             }
             let deep_link_app = handle.clone();

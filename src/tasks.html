@@ -14,7 +14,7 @@
          LLM with web search, page reading and a real browser, streaming
          progress back as pet://task events. Anything that spends money, logs in
          or sends something pauses here for your approval. Keys never touch
-         this page: they go straight to Credential Manager. -->
+         this page: they go straight to the OS keychain. -->
     <header>
       <div class="header-row">
         <h1>Ask me to do something</h1>
@@ -201,7 +201,7 @@
       <section data-panel="providers" hidden>
         <div class="card">
           <h2>API keys</h2>
-          <p class="hint">Stored in Windows Credential Manager under <code>PocketPet/&lt;provider&gt;</code>. Never written to settings or backups. Ollama and custom local servers need no key.</p>
+          <p class="hint">Stored in <span id="keyStore">Windows Credential Manager under <code>PocketPet/&lt;provider&gt;</code></span>. Never written to settings or backups. Ollama and custom local servers need no key.</p>
           <ul id="keys" class="list keys"></ul>
         </div>
         <div class="card">
@@ -227,7 +227,7 @@
             </select>
           </label>
           <label class="row"><input type="checkbox" id="speakSetting" /> Pet reads answers and approval questions aloud</label>
-          <p class="hint">Windows recognition needs Settings › Privacy › Microphone and Speech turned on for desktop apps.</p>
+          <p class="hint" id="voiceHint">Windows recognition needs Settings › Privacy › Microphone and Speech turned on for desktop apps.</p>
         </div>
       </section>
 

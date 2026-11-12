@@ -240,6 +240,26 @@ pub mod extras {
         (it.next().unwrap_or(0), it.next().unwrap_or(0), it.next().unwrap_or(0))
     }
 
+    /// Linux package format this copy was installed from, which is also the
+    /// format its update should come in: an AppImage replaces itself, while a
+    /// .deb / .rpm install goes through the system package manager.
+    #[cfg(target_os = "linux")]
+    pub fn linux_package() -> &'static str {
+        if std::env::var_os("APPIMAGE").is_some() {
+            return "AppImage";
+        }
+        let exe = std::env::current_exe().unwrap_or_default();
+        if exe.starts_with("/usr") {
+            if std::path::Path::new("/usr/bin/dpkg").exists() {
+                return "deb";
+            }
+            if std::path::Path::new("/usr/bin/rpm").exists() {
+                return "rpm";
+            }
+        }
+        "AppImage"
+    }
+
     /// Which release asset is ours on this platform.
     fn asset_matches(url: &str) -> bool {
         #[cfg(target_os = "macos")]
@@ -249,7 +269,7 @@ pub mod extras {
         }
         #[cfg(target_os = "linux")]
         {
-            url.ends_with(".AppImage")
+            url.ends_with(&format!(".{}", linux_package()))
         }
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {
@@ -311,7 +331,10 @@ pub mod extras {
         let total = response.content_length();
         let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
             .map_err(|e| e.to_string())?.as_nanos();
-        let extension = if cfg!(target_os = "macos") { "dmg" } else { "AppImage" };
+        #[cfg(target_os = "macos")]
+        let extension = "dmg";
+        #[cfg(not(target_os = "macos"))]
+        let extension = linux_package();
         let path = std::env::temp_dir().join(format!("PocketPet-update-{stamp}.{extension}"));
         let partial = path.with_extension("part");
         let result = async {

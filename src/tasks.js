@@ -3,6 +3,7 @@
 // limits. Settings share the overlay's localStorage via preferences.js; API
 // keys go to Credential Manager only. The overlay records task history and
 // spend; this window sends receipt metadata for that history entry.
+import { IS_WINDOWS, platformFor } from "./platform.js";
 import { readSettings, writeSettings, AGENT_PROVIDERS } from "./preferences.js";
 import { getPet } from "./pets/index.js";
 import { tintedSvg, customImageSvg } from "./appearance.js";
@@ -1285,7 +1286,9 @@ for (const e of EXAMPLES) {
 }
 $("log").innerHTML = '<li class="empty">Nothing running yet — type an errand above and press Go.</li>';
 // Offline dictation is the Windows recogniser; elsewhere only Whisper works.
-if (!/Windows/i.test(navigator.userAgent)) {
+$("voiceHint").textContent = platformFor().voiceHint;
+if (!IS_WINDOWS) {
+  $("keyStore").textContent = platformFor().keyStore;
   const opt = $("voiceEngine").querySelector('option[value="windows"]');
   if (opt) {
     opt.disabled = true;

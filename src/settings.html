@@ -182,7 +182,7 @@
           <div data-needs="breakMins">
             <label>Snooze length (minutes) <input type="number" id="breakSnooze" min="1" max="60" /></label>
             <label class="row"><input type="checkbox" id="showCountdown" /> Show a countdown above the pet</label>
-            <label class="row"><input type="checkbox" id="toasts" /> Windows notification when the pet is hidden or quiet</label>
+            <label class="row"><input type="checkbox" id="toasts" /> Desktop notification when the pet is hidden or quiet</label>
           </div>
         </div>
         <div class="card">
@@ -252,7 +252,7 @@
         </div>
         <div class="card" id="appProfilesCard">
           <h2>Per-app pet modes</h2>
-          <p class="hint">Windows: match foreground executable name. Fullscreen focus setting still wins.</p>
+          <p class="hint" id="appProfilesHint">Windows: match foreground executable name. Fullscreen focus setting still wins.</p>
           <div class="pair">
             <label>App executable <input id="appProfileName" type="text" maxlength="80" placeholder="zoom.exe" /></label>
             <label>Mode <select id="appProfileMode"><option value="playful">Playful</option><option value="quiet">Quiet</option><option value="hide">Hidden</option></select></label>

@@ -2,6 +2,7 @@
 // uses (validated by preferences.js), then broadcasts "pet://settings" so the
 // overlay applies the change.
 import { PETS } from "./pets/index.js";
+import { IS_WINDOWS, platformFor } from "./platform.js";
 import {
   readSettings,
   writeSettings,
@@ -982,7 +983,10 @@ window.addEventListener("storage", () => {
 fill();
 fillMonitors();
 // Window-aware tricks need Win32 (window list, caption buttons); grey them out elsewhere.
-if (!/Windows/i.test(navigator.userAgent)) {
+if (!IS_WINDOWS) {
+  // Per-app modes read the foreground app's executable, which only Win32 exposes.
+  for (const control of $("appProfilesCard").querySelectorAll("input, select, button")) control.disabled = true;
+  $("appProfilesHint").textContent = "Windows only: macOS and Linux do not let PocketPet see which app is in front.";
   for (const id of ["mischief", "realClick"]) {
     const box = $(id);
     box.disabled = true;
@@ -991,5 +995,5 @@ if (!/Windows/i.test(navigator.userAgent)) {
     box.closest("label")?.append(" (Windows only)");
   }
   const keys = $("resetShortcuts").closest(".card")?.querySelector("p.hint");
-  if (keys) keys.textContent += " On macOS, Win means ⌘.";
+  if (keys) keys.textContent += ` Here, Win means ${platformFor().superKey}.`;
 }

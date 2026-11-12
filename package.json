@@ -1,0 +1,12 @@
+{
+  "name": "pocketpet",
+  "private": true,
+  "description": "Developer scripts only. The app itself has no npm dependencies and no bundler.",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node scripts/run-tests.mjs",
+    "validate": "node scripts/validate-release.mjs",
+    "check": "node scripts/validate-release.mjs && node scripts/run-tests.mjs"
+  }
+}

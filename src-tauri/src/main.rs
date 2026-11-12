@@ -10,5 +10,7 @@ fn main() {
         let _ = std::fs::write(dir.join(format!("panic-{ts}.log")), format!("{info}\n"));
         eprintln!("{info}");
     }));
+    // Must run before GTK/WebKit start: they read these variables once.
+    pocketpet_lib::prepare_linux_environment();
     pocketpet_lib::run()
 }

@@ -20,7 +20,7 @@ jobs:
       - name: Validate app and release versions
         run: node scripts/validate-release.mjs
       - name: JS tests
-        run: node --test tests/*.test.mjs
+        run: node scripts/run-tests.mjs
 
   build:
     needs: test
@@ -44,10 +44,11 @@ jobs:
             artifact: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
           - os: ubuntu-22.04
             name: linux
-            bundles: appimage,deb
+            bundles: appimage,deb,rpm
             artifact: |
               src-tauri/target/release/bundle/appimage/*.AppImage
               src-tauri/target/release/bundle/deb/*.deb
+              src-tauri/target/release/bundle/rpm/*.rpm
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

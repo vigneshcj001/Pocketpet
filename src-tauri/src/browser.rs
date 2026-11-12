@@ -21,8 +21,17 @@ const VIEWPORT: (u32, u32) = (1180, 860);
 
 // --- launching -------------------------------------------------------------------
 
-#[cfg(windows)]
+/// The Chromium-family browser the agent drives. `POCKETPET_BROWSER` (a full
+/// path to Chrome, Edge, Brave, Chromium, Vivaldi...) wins on every platform.
 fn browser_exe() -> Option<std::path::PathBuf> {
+    std::env::var_os("POCKETPET_BROWSER")
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_file())
+        .or_else(installed_browser)
+}
+
+#[cfg(windows)]
+fn installed_browser() -> Option<std::path::PathBuf> {
     let pf86 = std::env::var("ProgramFiles(x86)").unwrap_or_default();
     let pf = std::env::var("ProgramFiles").unwrap_or_default();
     let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
@@ -33,12 +42,15 @@ fn browser_exe() -> Option<std::path::PathBuf> {
         format!(r"{pf86}\Google\Chrome\Application\chrome.exe"),
         format!(r"{local}\Google\Chrome\Application\chrome.exe"),
         format!(r"{pf}\BraveSoftware\Brave-Browser\Application\brave.exe"),
+        format!(r"{local}\BraveSoftware\Brave-Browser\Application\brave.exe"),
+        format!(r"{local}\Chromium\Application\chrome.exe"),
+        format!(r"{local}\Vivaldi\Application\vivaldi.exe"),
     ];
     candidates.into_iter().map(std::path::PathBuf::from).find(|p| p.exists())
 }
 
 #[cfg(target_os = "macos")]
-fn browser_exe() -> Option<std::path::PathBuf> {
+fn installed_browser() -> Option<std::path::PathBuf> {
     let home = std::env::var("HOME").unwrap_or_default();
     let apps = ["/Applications", &format!("{home}/Applications")];
     let bundles = [
@@ -46,6 +58,7 @@ fn browser_exe() -> Option<std::path::PathBuf> {
         "Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
         "Brave Browser.app/Contents/MacOS/Brave Browser",
         "Chromium.app/Contents/MacOS/Chromium",
+        "Vivaldi.app/Contents/MacOS/Vivaldi",
     ];
     apps.iter()
         .flat_map(|dir| bundles.iter().map(move |b| std::path::PathBuf::from(dir).join(b)))
@@ -53,8 +66,9 @@ fn browser_exe() -> Option<std::path::PathBuf> {
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn browser_exe() -> Option<std::path::PathBuf> {
-    let names = ["google-chrome", "google-chrome-stable", "microsoft-edge", "microsoft-edge-stable", "brave-browser", "chromium", "chromium-browser"];
+fn installed_browser() -> Option<std::path::PathBuf> {
+    let names = ["google-chrome", "google-chrome-stable", "microsoft-edge", "microsoft-edge-stable",
+        "brave-browser", "brave", "chromium", "chromium-browser", "vivaldi-stable", "vivaldi"];
     let path = std::env::var("PATH").unwrap_or_default();
     for dir in path.split(':').filter(|d| !d.is_empty()) {
         for name in names {
@@ -64,11 +78,15 @@ fn browser_exe() -> Option<std::path::PathBuf> {
             }
         }
     }
-    // Flatpak / snap installs that are not on PATH.
-    ["/var/lib/flatpak/exports/bin/com.google.Chrome", "/snap/bin/chromium"]
-        .into_iter()
-        .map(std::path::PathBuf::from)
-        .find(|p| p.exists())
+    // Snap and Flatpak installs (system-wide and per-user) that are not on PATH.
+    let home = std::env::var("HOME").unwrap_or_default();
+    let mut fallbacks = vec![std::path::PathBuf::from("/snap/bin/chromium")];
+    for root in ["/var/lib/flatpak".to_string(), format!("{home}/.local/share/flatpak")] {
+        for app in ["com.google.Chrome", "com.brave.Browser", "org.chromium.Chromium", "com.microsoft.Edge"] {
+            fallbacks.push(std::path::PathBuf::from(format!("{root}/exports/bin/{app}")));
+        }
+    }
+    fallbacks.into_iter().find(|p| p.exists())
 }
 
 fn profile_dir() -> std::path::PathBuf {
@@ -168,11 +186,11 @@ pub struct Browser {
 
 impl Browser {
     pub async fn launch() -> Result<Browser, String> {
-        let exe = browser_exe().ok_or("No Chromium browser found (Edge, Chrome or Brave).")?;
+        let exe = browser_exe().ok_or("No Chromium browser found (Chrome, Edge, Brave, Chromium or Vivaldi). Install one, or set POCKETPET_BROWSER to its full path.")?;
         let port = free_port();
         let dir = profile_dir();
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let child = std::process::Command::new(&exe)
+        let child = crate::paths::host_command(&exe)
             .arg(format!("--remote-debugging-port={port}"))
             .arg(format!("--user-data-dir={}", dir.display()))
             .arg(format!("--window-size={},{}", VIEWPORT.0 + 16, VIEWPORT.1 + 130))
@@ -418,7 +436,7 @@ impl Browser {
             modifiers |= match m.to_ascii_lowercase().as_str() {
                 "alt" => 1,
                 "ctrl" | "control" => 2,
-                "meta" | "win" => 4,
+                "meta" | "win" | "cmd" | "command" | "super" => 4,
                 "shift" => 8,
                 _ => 0,
             };

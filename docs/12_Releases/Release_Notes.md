@@ -2,6 +2,22 @@
 
 Downloads: <https://pocketpet-web.vercel.app/> · all builds on [GitHub Releases](https://github.com/vigneshcj001/Pocketpet/releases).
 
+## PocketPet 0.2.4
+
+Better on macOS and Linux, same pet everywhere.
+
+**Highlights**
+- Linux: works on Wayland desktops (runs through XWayland automatically), no more black overlay on NVIDIA, no crash when no X display exists, and the pet's browser no longer breaks when started from the AppImage.
+- New `.rpm` for Fedora and openSUSE alongside the AppImage and `.deb`; in-app updates now fetch the same package type you installed.
+- Pick any Chromium browser for errands with `POCKETPET_BROWSER`; more browsers are found automatically (Vivaldi, per-user Brave/Chromium, Flatpaks).
+- Settings and Tasks talk about *your* OS: Keychain / Secret Service / Credential Manager, ⌘ / Super / Win.
+- The website recommends the right Mac build (Apple Silicon or Intel) when the browser can tell.
+
+**Install**
+- Windows 10/11 x64 (and Windows on ARM via emulation): `PocketPet_0.2.4_x64-setup.exe`.
+- macOS 11+: `PocketPet_0.2.4_aarch64.dmg` (Apple Silicon) or `PocketPet_0.2.4_x64.dmg` (Intel). Not notarized — right-click → Open the first time.
+- Linux x86-64: `PocketPet_0.2.4_amd64.deb` (Debian/Ubuntu), `PocketPet-0.2.4-1.x86_64.rpm` (Fedora/openSUSE) or `PocketPet_0.2.4_amd64.AppImage` (anything else; needs FUSE 2).
+
 ## PocketPet 0.1.0
 
 Your desktop pet that also runs errands.

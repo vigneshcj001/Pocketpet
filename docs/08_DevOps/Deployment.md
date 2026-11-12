@@ -2,8 +2,8 @@
 
 ## Distribution
 
-- **Download page:** <https://pocketpet-web.vercel.app/> — source in [Pocketpet-web](https://github.com/vigneshcj001/Pocketpet-web) (React + Tailwind on Vite, auto-deployed by Vercel on push to `main`). Detects the visitor's OS and links each button to the matching asset of the latest GitHub Release by file-name suffix (`-setup.exe`, `_aarch64.dmg`, `_x64.dmg`, `.AppImage`, `.deb`). No release yet → buttons open the Releases page.
-- **Releases:** <https://github.com/vigneshcj001/Pocketpet/releases>. Pushing a `v*` tag runs `.github/workflows/build.yml`, which builds Windows NSIS, macOS aarch64 + x64 DMG, Linux AppImage + deb and attaches them to the release. Nothing on the website needs changing per release.
+- **Download page:** <https://pocketpet-web.vercel.app/> — source in [Pocketpet-web](https://github.com/vigneshcj001/Pocketpet-web) (React + Tailwind on Vite, auto-deployed by Vercel on push to `main`). Detects the visitor's OS and links each button to the matching asset of the latest GitHub Release by file-name suffix (`-setup.exe`, `_aarch64.dmg`, `_x64.dmg`, `.AppImage`, `.deb`, `.rpm`). On a Mac it highlights Apple Silicon or Intel when the browser reveals the chip (Client Hints or the WebGL GPU name). No release yet → buttons open the Releases page.
+- **Releases:** <https://github.com/vigneshcj001/Pocketpet/releases>. Pushing a `v*` tag runs `.github/workflows/build.yml`, which builds Windows NSIS, macOS aarch64 + x64 DMG, Linux AppImage + deb + rpm and attaches them to the release. Nothing on the website needs changing per release.
 
 ## Windows
 
@@ -28,11 +28,13 @@
 ## Linux
 
 - Artifacts: `PocketPet_<version>_amd64.AppImage` (any distro, `chmod +x` then run) and `PocketPet_<version>_amd64.deb` (Ubuntu 22.04+ / Debian 12+, depends on `libwebkit2gtk-4.1-0`, `libgtk-3-0`).
-- Prefer the `.deb` on Debian/Ubuntu: it links the system WebKit and GStreamer, so it is immune to the AppImage bundling problems below.
+- `PocketPet-<version>-1.x86_64.rpm` for Fedora 39+ / openSUSE (depends on `webkit2gtk4.1`, `gtk3`): `sudo dnf install ./PocketPet-<version>-1.x86_64.rpm`.
+- Prefer the `.deb` / `.rpm` on those distros: it links the system WebKit and GStreamer, so it is immune to the AppImage bundling problems below.
 - AppImage needs FUSE 2, absent on Ubuntu 24.04+ / Fedora 40+. On `dlopen(): error loading libfuse.so.2`, install `libfuse2t64` / `fuse-libs`, or run `./PocketPet_<version>_amd64.AppImage --appimage-extract-and-run`. The `.deb` needs no FUSE.
 - AppImage media: `bundle.linux.appimage.bundleMediaFramework` is on, and CI installs `gstreamer1.0-plugins-{base,good,bad}`, `-libav` and `-pulseaudio` so linuxdeploy copies the plugins in. Tauri's `AppRun` exports `GST_PLUGIN_SYSTEM_PATH_1_0=$APPDIR/usr/lib/gstreamer-1.0` unconditionally, so an AppImage built without the flag searches an empty directory, WebKit reports `GStreamer element appsrc not found` and the webview never starts — host GStreamer packages cannot rescue it, the override hides them ([tauri#15665](https://github.com/tauri-apps/tauri/issues/15665)). 0.1.0 AppImages have this defect; workaround in the README.
 - `libgvfscommon.so: undefined symbol: g_task_set_static_name` on the AppImage is cosmetic: the bundle carries the builder's GLib 2.72 (Ubuntu 22.04) and the host's gvfs modules want GLib 2.76+.
-- Needs X11 or XWayland: click-through and the cursor poller use X11; on pure Wayland the pet blocks clicks under it.
-- Updates: in-app check downloads the `.AppImage`; replace the old file.
+- Needs X11 or XWayland: click-through and the cursor poller use X11. On a Wayland session with XWayland, PocketPet sets `GDK_BACKEND=x11` for itself (opt out: `POCKETPET_NATIVE_WAYLAND=1`). With no X display at all it still runs, but cannot follow the cursor and blocks clicks under the pet.
+- `WEBKIT_DISABLE_DMABUF_RENDERER=1` is set unless already defined, avoiding a black or invisible overlay on NVIDIA and some compositors. Both variables are removed again for programs PocketPet launches, as are AppImage library paths.
+- Updates: the in-app check fetches the same format you installed — AppImage installs get an executable `.AppImage` in a revealed folder (replace the old file); `.deb` / `.rpm` installs get that package opened in the software installer.
 - Data: `$XDG_DATA_HOME/PocketPet/` (default `~/.local/share/PocketPet/`); keys in Secret Service (GNOME Keyring / KWallet) or `keys/` with mode `0600` when no daemon runs. Run at startup = `~/.config/autostart/pocketpet.desktop`.
-- Uninstall: delete the AppImage or `apt remove pocketpet`; optionally the data folder and autostart entry.
+- Uninstall: delete the AppImage, or `sudo apt remove pocket-pet` / `sudo dnf remove pocket-pet`; optionally the data folder and autostart entry.

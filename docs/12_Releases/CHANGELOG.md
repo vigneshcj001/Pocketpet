@@ -1,6 +1,30 @@
 # Changelog
 
-## 0.2.2 (local changes; not published)
+## 0.2.4 (cross-platform hardening)
+
+### Linux
+- **No more crash on Wayland-only sessions.** The cursor poller used `DeviceState::new()`, which panics without an X display; with `panic = "abort"` that killed the whole app. It now uses `checked_new()` and keeps running (cursor-following and click-through off, logged once).
+- **XWayland by default on Wayland desktops.** When `DISPLAY` is available and `GDK_BACKEND` is unset, PocketPet starts on the X11 backend so cursor-following and click-through work on GNOME/KDE Wayland. Opt out with `POCKETPET_NATIVE_WAYLAND=1`.
+- **Blank/black overlay fix.** `WEBKIT_DISABLE_DMABUF_RENDERER=1` is set unless the user already chose a value (NVIDIA and several compositors drew the transparent overlay as an opaque box).
+- **AppImage no longer leaks its libraries into your browser.** The agent's Chrome/Edge/Brave and `xdg-open` are launched with every `$APPDIR` entry stripped from `LD_LIBRARY_PATH`, `GST_PLUGIN_*`, `XDG_DATA_DIRS`, `PATH`, and similar variables, and without the two variables above.
+- **`pocketpet://` links work from an AppImage**: the scheme is registered at runtime (the .deb/.rpm register it through their desktop file).
+- **New `.rpm` package** (Fedora, openSUSE) built by CI and offered on the website.
+- **Updates match the install type**: a .deb/.rpm install is offered the .deb/.rpm (opened in the software installer); only AppImage installs get the AppImage.
+- `xdg-open` children are reaped instead of left as zombies; a missing tray (GNOME without AppIndicator) can no longer abort start-up.
+
+### macOS / Linux / Windows
+- Browser discovery: `POCKETPET_BROWSER=/path/to/browser` override everywhere; also finds per-user Brave, Chromium and Vivaldi on Windows, Vivaldi on macOS, and Brave/Chromium/Edge Flatpaks (system and per-user) and Vivaldi on Linux.
+- Agent key presses accept `Cmd` / `Command` / `Super` as the meta modifier.
+- Settings and Tasks wording follows the OS: API keys say Keychain / Secret Service instead of "Windows Credential Manager"; the voice hint and the "Win means ⌘ / Super" shortcut note are per platform; "Windows notification" is now "Desktop notification"; per-app pet modes are greyed out off Windows (they need the foreground executable).
+- `bundle.targets` lists every platform's packages (`nsis`, `app`, `dmg`, `deb`, `rpm`, `appimage`); Tauri builds the ones that apply, so a plain `cargo tauri build` works on macOS and Linux too.
+
+### Developer experience
+- `run.sh` / `build.sh` (+ `scripts/check-deps.sh`) for macOS and Linux, matching `run.ps1` / `build-installer.ps1`. The dependency check prints the apt / dnf / pacman line for anything missing.
+- `package.json` (no dependencies) marks the frontend as ES modules, so the tests run on Node 20 as well as 22, and adds `npm test` / `npm run check`.
+- `scripts/run-tests.mjs` replaces the shell glob `tests/*.test.mjs`, which PowerShell and cmd do not expand. CI uses it.
+- New `tests/platform.test.mjs`; Rust tests for `paths.rs`.
+
+## 0.2.2 – 0.2.3 (local changes; not published)
 
 - Settings now shows installed build identity beside latest published release and explains tagged-release requirement.
 - Windows foreground-app rules switch pet between playful, quiet, and hidden modes. Fullscreen focus remains higher priority.
