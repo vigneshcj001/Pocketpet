@@ -3,7 +3,8 @@
 // limits. Settings share the overlay's localStorage via preferences.js; API
 // keys go to Credential Manager only. The overlay records task history and
 // spend; this window sends receipt metadata for that history entry.
-import { IS_WINDOWS, platformFor } from "./platform.js";
+import { IS_WINDOWS, platformFor, recordingMime } from "./platform.js";
+import { spentOn } from "./schedule.js";
 import { readSettings, writeSettings, AGENT_PROVIDERS } from "./preferences.js";
 import { getPet } from "./pets/index.js";
 import { tintedSvg, customImageSvg } from "./appearance.js";
@@ -49,8 +50,7 @@ const EXAMPLES = [
   "Summarise today's top three tech headlines with links.",
 ];
 
-const today = () => new Date().toISOString().slice(0, 10);
-const spentToday = () => (settings.agent.spend.date === today() ? settings.agent.spend.usd : 0);
+const spentToday = () => spentOn(settings.agent.spend);
 
 function save(patch) {
   settings = writeSettings(patch);
@@ -1068,6 +1068,8 @@ listen("pet://task", ({ payload }) => {
 
 let recorder = null;
 let chunks = [];
+// Released before the microphone was ready (e.g. during the permission prompt)?
+let wantRecording = false;
 let listening = false;
 
 async function listenWindows() {
@@ -1089,14 +1091,23 @@ async function listenWindows() {
 
 async function startRecording() {
   if (recorder) return;
+  wantRecording = true;
   try {
+    const mime = recordingMime();
+    if (!mime) throw new Error("this system cannot record audio in a format Whisper accepts");
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     chunks = [];
-    recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+    try {
+      recorder = new MediaRecorder(stream, { mimeType: mime });
+    } catch (error) {
+      stream.getTracks().forEach((t) => t.stop());
+      throw error;
+    }
+    const type = mime.split(";")[0];
     recorder.ondataavailable = (e) => chunks.push(e.data);
     recorder.onstop = async () => {
       stream.getTracks().forEach((t) => t.stop());
-      const blob = new Blob(chunks, { type: "audio/webm" });
+      const blob = new Blob(chunks, { type });
       recorder = null;
       $("mic").classList.remove("recording");
       if (blob.size < 2000) return;
@@ -1108,7 +1119,7 @@ async function startRecording() {
           r.onerror = rej;
           r.readAsDataURL(blob);
         });
-        const text = await invoke("agent_transcribe", { audioB64: b64, mime: "audio/webm" });
+        const text = await invoke("agent_transcribe", { audioB64: b64, mime: type });
         $("task").value = ($("task").value.trim() ? $("task").value.trim() + " " : "") + text;
         $("status").textContent = "Heard you. Press Go.";
       } catch (err) {
@@ -1118,11 +1129,16 @@ async function startRecording() {
     recorder.start();
     $("mic").classList.add("recording");
     $("status").textContent = "Listening… release to stop.";
+    if (!wantRecording) recorder.stop();
   } catch (err) {
-    $("status").textContent = `Microphone unavailable: ${err.message ?? err}. Try the Windows engine under Providers › Voice.`;
+    recorder = null;
+    $("mic").classList.remove("recording");
+    const hint = IS_WINDOWS ? " Try the Windows engine under Providers › Voice." : " Check microphone access for PocketPet in your system settings.";
+    $("status").textContent = `Microphone unavailable: ${err.message ?? err}.${hint}`;
   }
 }
 function stopRecording() {
+  wantRecording = false;
   if (recorder && recorder.state === "recording") recorder.stop();
 }
 const whisperMode = () => settings.agent.voiceEngine === "whisper";
@@ -1343,7 +1359,7 @@ function companionVoice() {
     $("status").textContent = "Enable voice input under Providers & keys first.";
     return;
   }
-  if (whisperMode()) { if (recorder) stopRecording(); else startRecording(); }
+  if (whisperMode()) { if (recorder || wantRecording) stopRecording(); else startRecording(); }
   else listenWindows();
 }
 $("companion-voice").addEventListener("click", companionVoice);

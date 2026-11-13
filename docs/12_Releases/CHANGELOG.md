@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Daily spend cap now resets at local midnight.** Spend was dated in UTC, so "today" rolled over at 05:30 in India and mid-afternoon or evening in the Americas, while schedules already used the local day. Existing records dated with the old UTC day are treated as a new day once.
+- **Voice input (Whisper) works on macOS.** The recorder was hard-wired to WebM, which WKWebView cannot record; it now picks a supported format (WebM, MP4 or Ogg) and sends the matching type for transcription. The error hint no longer suggests the Windows-only engine on macOS and Linux.
+- **Releasing the mic button during the permission prompt** no longer leaves a recording running; the Ctrl+Alt+V toggle no longer starts a second recording while the first is still starting.
+- **Update download text** says "PocketPet will close" only on Windows, where it actually does.
+
 ## 0.2.4 (cross-platform hardening)
 
 ### Linux

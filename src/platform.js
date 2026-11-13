@@ -26,3 +26,16 @@ export function platformFor(os = OS) {
     },
   }[os];
 }
+
+/**
+ * A recording format this webview can produce and Whisper accepts.
+ * WebView2 and WebKitGTK record WebM/Ogg; macOS WKWebView only records MP4.
+ * Returns the bare MIME type (no codec parameter) or "" when none works.
+ */
+export function recordingMime(isTypeSupported = globalThis.MediaRecorder?.isTypeSupported?.bind(globalThis.MediaRecorder)) {
+  if (typeof isTypeSupported !== "function") return "";
+  for (const type of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus", "audio/ogg"]) {
+    if (isTypeSupported(type)) return type;
+  }
+  return "";
+}

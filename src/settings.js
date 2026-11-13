@@ -782,7 +782,7 @@ const updateProgressReady = listen("pet://update-progress", ({ payload }) => {
   } else progress.removeAttribute("value");
   const mb = (bytes) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   $("updateStatus").textContent = payload.done
-    ? "Download complete. Opening the installer… PocketPet will close."
+    ? (IS_WINDOWS ? "Download complete. Opening the installer… PocketPet will close." : "Download complete. Opening it…")
     : total > 0
       ? `Downloading ${Math.floor(downloaded / total * 100)}% · ${mb(downloaded)} of ${mb(total)}`
       : `Downloading… ${mb(downloaded)} received`;

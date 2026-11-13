@@ -19,7 +19,7 @@ import {
 import { createGames, TOYS } from "./games.js";
 import { createCompanion } from "./companion.js";
 import { taskNarration } from "./narration.js";
-import { localDay, scheduleDue } from "./schedule.js";
+import { localDay, scheduleDue, spentOn } from "./schedule.js";
 import { effectivePetMode } from "./app-profile.js";
 import { petMood } from "./mood.js";
 
@@ -2134,7 +2134,7 @@ async function tickSchedules() {
   if (!due) return;
   const day = localDay(now);
   const cap = settings.agent.dailyCapUsd;
-  const spent = settings.agent.spend?.date === now.toISOString().slice(0, 10) ? settings.agent.spend.usd : 0;
+  const spent = spentOn(settings.agent.spend, now);
   if (cap > 0 && cap - spent <= 0) {
     scheduleFailures.set(due.id, Date.now());
     say("Scheduled task waiting: daily spend cap reached.", 4000);
@@ -2192,9 +2192,8 @@ function rememberTask(payload, status) {
   const tasks = [...latest.tasks.filter((task) => task.id !== id), entry].slice(-50);
   // Daily spend meter (USD estimate from the agent's usage accounting).
   const usd = Number(d.usd) || 0;
-  const day = new Date().toISOString().slice(0, 10);
-  const prev = latest.agent.spend?.date === day ? latest.agent.spend.usd : 0;
-  settings = writeSettings({ tasks, agent: { spend: { date: day, usd: prev + usd } } });
+  const today = new Date();
+  settings = writeSettings({ tasks, agent: { spend: { date: localDay(today), usd: spentOn(latest.agent.spend, today) + usd } } });
   savedSettings = structuredClone(settings);
   // Tell the Tasks window (and anyone else) that history changed.
   window.__TAURI__.event.emit("pet://settings", { tasks: true }).catch(() => {});

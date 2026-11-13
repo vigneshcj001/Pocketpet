@@ -14,3 +14,11 @@ export function scheduleDue(schedule, now = new Date()) {
   if (current < dueAt) return false;
   return schedule.catchUp === "run" || current < dueAt + 10;
 }
+
+/**
+ * Model spend recorded for the user's local "today". The daily cap resets at
+ * local midnight, like schedules; a record from another day counts as zero.
+ */
+export function spentOn(spend, now = new Date()) {
+  return spend?.date === localDay(now) ? Number(spend.usd) || 0 : 0;
+}
